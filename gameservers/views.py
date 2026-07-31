@@ -1,6 +1,12 @@
+from typing import Optional
+
 import discord
 
 from .store import can_view_game
+
+
+def with_menu_notice(notice: str, menu_content: str) -> str:
+    return f"> {notice}\n\n{menu_content}"
 
 
 def wrap_spoiler(value: str, spoiler: bool) -> str:
@@ -132,15 +138,16 @@ class SelectPanelGamesView(discord.ui.View):
         chosen = list(self._select.values)
         if self.message_id is None:
             await self.cog.create_panel(self.guild, self.channel, chosen)
-            await interaction.response.edit_message(
-                content=f"Panel posted in {self.channel.mention}.", embed=None, view=None
-            )
+            notice = f"Panel posted in {self.channel.mention}."
         else:
             await self.cog.store.set_panel_games(self.guild, self.message_id, chosen)
             await self.cog.refresh_panels(self.guild)
-            await interaction.response.edit_message(
-                content="Panel's game list updated.", embed=None, view=None
-            )
+            notice = "Panel's game list updated."
+        await interaction.response.edit_message(
+            content=with_menu_notice(notice, "GameServers Admin"),
+            embed=None,
+            view=AdminView(self.cog, self.guild),
+        )
 
 
 class ChoosePanelGamesView(discord.ui.View):
@@ -156,22 +163,25 @@ class ChoosePanelGamesView(discord.ui.View):
     async def all_games(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.message_id is None:
             await self.cog.create_panel(self.guild, self.channel, None)
-            await interaction.response.edit_message(
-                content=f"Panel posted in {self.channel.mention}.", embed=None, view=None
-            )
+            notice = f"Panel posted in {self.channel.mention}."
         else:
             await self.cog.store.set_panel_games(self.guild, self.message_id, None)
             await self.cog.refresh_panels(self.guild)
-            await interaction.response.edit_message(
-                content="Panel's game list updated.", embed=None, view=None
-            )
+            notice = "Panel's game list updated."
+        await interaction.response.edit_message(
+            content=with_menu_notice(notice, "GameServers Admin"),
+            embed=None,
+            view=AdminView(self.cog, self.guild),
+        )
 
     @discord.ui.button(label="Choose Specific Games", style=discord.ButtonStyle.secondary)
     async def choose_specific(self, interaction: discord.Interaction, button: discord.ui.Button):
         games = await self.cog.store.list_games(self.guild)
         if not games:
             await interaction.response.edit_message(
-                content="No games configured yet.", embed=None, view=None
+                content=with_menu_notice("No games configured yet.", "GameServers Admin"),
+                embed=None,
+                view=AdminView(self.cog, self.guild),
             )
             return
         view = SelectPanelGamesView(
@@ -243,7 +253,9 @@ class ChangePanelChannelView(discord.ui.View):
         await self.cog.store.add_panel(self.guild, new_channel.id, new_message.id, game_names)
         self.cog.bot.add_view(view, message_id=new_message.id)
         await interaction.response.edit_message(
-            content=f"Panel moved to {new_channel.mention}.", embed=None, view=None
+            content=with_menu_notice(f"Panel moved to {new_channel.mention}.", "GameServers Admin"),
+            embed=None,
+            view=AdminView(self.cog, self.guild),
         )
 
     @discord.ui.button(label="Main Menu", style=discord.ButtonStyle.gray, row=1)
@@ -272,7 +284,11 @@ class ManageSinglePanelView(discord.ui.View):
                 except discord.NotFound:
                     pass
         await self.cog.store.remove_panel(self.guild, self.message_id)
-        await interaction.response.edit_message(content="Panel deleted.", embed=None, view=None)
+        await interaction.response.edit_message(
+            content=with_menu_notice("Panel deleted.", "GameServers Admin"),
+            embed=None,
+            view=AdminView(self.cog, self.guild),
+        )
 
     @discord.ui.button(label="Change Channel", style=discord.ButtonStyle.primary)
     async def change_channel(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -548,10 +564,11 @@ class GameEditorView(discord.ui.View):
         deleted = await self.cog.store.delete_game(self.guild, self.game_name)
         if deleted:
             await self.cog.refresh_panels(self.guild)
+        notice = f"Deleted **{self.game_name}**." if deleted else "That game no longer exists."
         await interaction.response.edit_message(
-            content=f"Deleted **{self.game_name}**." if deleted else "That game no longer exists.",
+            content=with_menu_notice(notice, "GameServers Admin"),
             embed=None,
-            view=None,
+            view=AdminView(self.cog, self.guild),
         )
 
     @discord.ui.button(label="Main Menu", style=discord.ButtonStyle.gray)
@@ -573,7 +590,11 @@ class AddGameModal(discord.ui.Modal, title="Add Game"):
         added = await self.cog.store.add_game(self.guild, self.name.value)
         if not added:
             await interaction.response.edit_message(
-                content=f"A game named **{self.name.value}** already exists.", view=None,
+                content=with_menu_notice(
+                    f"A game named **{self.name.value}** already exists.", "GameServers Admin"
+                ),
+                embed=None,
+                view=AdminView(self.cog, self.guild),
             )
             return
         await self.cog.refresh_panels(self.guild)
@@ -696,22 +717,21 @@ class AdminView(discord.ui.View):
         )
 
 
-async def _submission_home_response(interaction: discord.Interaction, cog, guild, home: str) -> None:
+async def _submission_home_response(
+    interaction: discord.Interaction, cog, guild, home: str, notice: Optional[str] = None,
+) -> None:
     """Redisplay whichever top-level view a submission-editing flow was entered from."""
     if home == "submissions":
         own = await cog.store.list_submissions_by_user(guild, interaction.user.id)
         if own:
-            await interaction.response.edit_message(
-                content="Your Submissions", embed=None, view=MySubmissionsView(cog, guild, own)
-            )
+            content, view = "Your Submissions", MySubmissionsView(cog, guild, own)
         else:
-            await interaction.response.edit_message(
-                content="You haven't submitted any proposals yet.", embed=None, view=None
-            )
+            content, view = "You haven't submitted any proposals yet.", None
     else:
-        await interaction.response.edit_message(
-            content="Propose a Game", embed=None, view=ProposeView(cog, guild)
-        )
+        content, view = "Propose a Game", ProposeView(cog, guild)
+    if notice:
+        content = with_menu_notice(notice, content)
+    await interaction.response.edit_message(content=content, embed=None, view=view)
 
 
 class AddSubmissionFieldModal(discord.ui.Modal, title="Add Field"):
@@ -957,7 +977,9 @@ class SubmissionActionsView(discord.ui.View):
     @discord.ui.button(label="Withdraw", style=discord.ButtonStyle.danger)
     async def withdraw(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.cog.store.delete_submission(self.guild, self.submission_id)
-        await interaction.response.edit_message(content="Submission withdrawn.", embed=None, view=None)
+        await _submission_home_response(
+            interaction, self.cog, self.guild, "submissions", notice="Submission withdrawn.",
+        )
 
     @discord.ui.button(label="Main Menu", style=discord.ButtonStyle.gray)
     async def main_menu(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1004,31 +1026,27 @@ class SubmissionReviewView(discord.ui.View):
             submission = await self.cog.store.get_submission(self.guild, self.submission_id)
             if submission["type"] == "new_game":
                 await self.cog.refresh_panels(self.guild)
-            await interaction.response.edit_message(content="Submission approved.", embed=None, view=None)
+            notice = "Submission approved."
         elif result == "auto_rejected_name_exists":
-            await interaction.response.edit_message(
-                content="Could not approve: a game with that name already exists. Submission auto-rejected.",
-                embed=None,
-                view=None,
-            )
+            notice = "Could not approve: a game with that name already exists. Submission auto-rejected."
         elif result == "auto_rejected_target_missing":
-            await interaction.response.edit_message(
-                content="Could not approve: the target game no longer exists. Submission auto-rejected.",
-                embed=None,
-                view=None,
-            )
+            notice = "Could not approve: the target game no longer exists. Submission auto-rejected."
         else:
-            await interaction.response.edit_message(
-                content="This submission can no longer be reviewed.", embed=None, view=None
-            )
+            notice = "This submission can no longer be reviewed."
+        await interaction.response.edit_message(
+            content=with_menu_notice(notice, "GameServers Admin"),
+            embed=None,
+            view=AdminView(self.cog, self.guild),
+        )
 
     @discord.ui.button(label="Reject", style=discord.ButtonStyle.danger)
     async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
         rejected = await self.cog.store.reject_submission(self.guild, self.submission_id)
+        notice = "Submission rejected." if rejected else "This submission can no longer be reviewed."
         await interaction.response.edit_message(
-            content="Submission rejected." if rejected else "This submission can no longer be reviewed.",
+            content=with_menu_notice(notice, "GameServers Admin"),
             embed=None,
-            view=None,
+            view=AdminView(self.cog, self.guild),
         )
 
     @discord.ui.button(label="Main Menu", style=discord.ButtonStyle.gray)
