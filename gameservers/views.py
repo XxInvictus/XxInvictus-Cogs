@@ -66,3 +66,37 @@ class PanelView(discord.ui.View):
         super().__init__(timeout=None)
         self.add_item(_GameSelect(cog, game_names))
         self.add_item(_GetDetailsButton(cog))
+
+
+class SetupPanelView(discord.ui.View):
+    def __init__(self, cog, guild):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.guild = guild
+
+    @discord.ui.select(cls=discord.ui.ChannelSelect, channel_types=[discord.ChannelType.text])
+    async def channel_select(self, interaction: discord.Interaction, select: discord.ui.ChannelSelect):
+        channel = await select.values[0].fetch()
+
+        old_channel_id, old_message_id = await self.cog.store.get_panel(self.guild)
+        if old_channel_id is not None and old_message_id is not None:
+            old_channel = self.guild.get_channel(old_channel_id)
+            if old_channel is not None:
+                try:
+                    old_message = await old_channel.fetch_message(old_message_id)
+                    await old_message.delete()
+                except discord.NotFound:
+                    pass
+
+        games = await self.cog.store.list_games(self.guild)
+        view = PanelView(self.cog, list(games.keys()))
+        message = await channel.send(
+            "**Game Server Details** — pick a game, then click Get Details.", view=view
+        )
+        try:
+            await message.pin()
+        except discord.HTTPException:
+            pass
+        await self.cog.store.set_panel(self.guild, channel.id, message.id)
+        self.cog.bot.add_view(view, message_id=message.id)
+        await interaction.response.send_message(f"Panel posted in {channel.mention}.", ephemeral=True)
