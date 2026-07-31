@@ -60,3 +60,19 @@ class GameStore:
                 return False
             del games[key]
         return True
+
+    async def set_field(self, guild, game_name: str, field_name: str, field_value: str) -> bool:
+        async with self.config.guild(guild).games() as games:
+            key = self._find_key(games, game_name)
+            if key is None:
+                return False
+            games[key]["fields"][field_name] = field_value
+        return True
+
+    async def remove_field(self, guild, game_name: str, field_name: str) -> bool:
+        async with self.config.guild(guild).games() as games:
+            key = self._find_key(games, game_name)
+            if key is None or field_name not in games[key]["fields"]:
+                return False
+            del games[key]["fields"][field_name]
+        return True
