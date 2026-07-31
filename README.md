@@ -21,8 +21,8 @@ uv run pytest
 Add this repo to Red's downloader and load the cog:
 
 ```
-[p]repo add gameservers <path-or-url-to-this-repo>
-[p]cog install gameservers gameservers
+[p]repo add XxInvictus-Cogs https://github.com/XxInvictus/XxInvictus-Cogs
+[p]cog install XxInvictus-Cogs gameservers
 [p]load gameservers
 ```
 

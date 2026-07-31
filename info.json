@@ -1,6 +1,6 @@
 {
     "author": ["XxInvictus"],
     "description": "Red Discord Bot cogs by XxInvictus.",
-    "install_msg": "Thanks for adding this repo! Run `[p]cog install <repo_name> gameservers` to install the GameServers cog.",
+    "install_msg": "Thanks for adding this repo! Run `[p]cog install XxInvictus-Cogs gameservers` to install the GameServers cog.",
     "short": "Cogs by XxInvictus"
 }
