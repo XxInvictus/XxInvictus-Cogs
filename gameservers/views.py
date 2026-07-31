@@ -503,3 +503,71 @@ class SubmissionFieldEditorView(discord.ui.View):
             self.cog, self.guild, self.submission_id, list(submission["fields"].keys()), action="remove"
         )
         await interaction.response.send_message("Pick a field to remove:", view=view, ephemeral=True)
+
+
+class ProposeNewGameModal(discord.ui.Modal, title="Propose New Game"):
+    name = discord.ui.TextInput(label="Game name", max_length=100)
+
+    def __init__(self, cog, guild):
+        super().__init__()
+        self.cog = cog
+        self.guild = guild
+
+    async def on_submit(self, interaction: discord.Interaction):
+        submission_id = await self.cog.store.create_submission(
+            self.guild, "new_game", interaction.user.id, self.name.value
+        )
+        submission = await self.cog.store.get_submission(self.guild, submission_id)
+        view = SubmissionFieldEditorView(self.cog, self.guild, submission_id)
+        await interaction.response.send_message(
+            embed=build_submission_embed(submission), view=view, ephemeral=True
+        )
+
+
+class SelectGameForEditProposalView(discord.ui.View):
+    def __init__(self, cog, guild, game_names: list):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.guild = guild
+        select = discord.ui.Select(
+            placeholder="Choose a game...",
+            options=[discord.SelectOption(label=name) for name in game_names[:25]],
+        )
+        select.callback = self._on_select
+        self.add_item(select)
+        self._select = select
+
+    async def _on_select(self, interaction: discord.Interaction):
+        game_name = self._select.values[0]
+        submission_id = await self.cog.store.create_submission(
+            self.guild, "edit_game", interaction.user.id, game_name
+        )
+        submission = await self.cog.store.get_submission(self.guild, submission_id)
+        view = SubmissionFieldEditorView(self.cog, self.guild, submission_id)
+        await interaction.response.send_message(
+            embed=build_submission_embed(submission), view=view, ephemeral=True
+        )
+
+
+class ProposeView(discord.ui.View):
+    def __init__(self, cog, guild):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.guild = guild
+
+    @discord.ui.button(label="Propose New Game", style=discord.ButtonStyle.success)
+    async def propose_new_game(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(ProposeNewGameModal(self.cog, self.guild))
+
+    @discord.ui.button(label="Propose Edit to Existing Game", style=discord.ButtonStyle.primary)
+    async def propose_edit(self, interaction: discord.Interaction, button: discord.ui.Button):
+        games = await self.cog.store.list_games(self.guild)
+        if not games:
+            await interaction.response.send_message(
+                "No games exist yet to propose edits to.", ephemeral=True
+            )
+            return
+        view = SelectGameForEditProposalView(self.cog, self.guild, list(games.keys()))
+        await interaction.response.send_message(
+            "Pick a game to propose an edit for:", view=view, ephemeral=True
+        )

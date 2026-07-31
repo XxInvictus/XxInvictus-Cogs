@@ -19,3 +19,7 @@ def test_admin_view_class_exists():
 
 def test_submission_field_editor_view_class_exists():
     assert hasattr(views, "SubmissionFieldEditorView")
+
+
+def test_propose_view_class_exists():
+    assert hasattr(views, "ProposeView")
