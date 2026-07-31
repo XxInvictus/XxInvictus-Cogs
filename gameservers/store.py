@@ -170,6 +170,19 @@ class GameStore:
         submissions = await self.config.guild(guild).submissions()
         return {sid: s for sid, s in submissions.items() if s["submitter_id"] == user_id}
 
+    async def get_submitter_roles(self, guild) -> list:
+        return await self.config.guild(guild).submitter_roles()
+
+    async def set_submitter_roles(self, guild, role_ids: list) -> None:
+        await self.config.guild(guild).submitter_roles.set(list(role_ids))
+
+    async def can_submit(self, member) -> bool:
+        if await self.can_manage(member):
+            return True
+        submitter_roles = await self.config.guild(member.guild).submitter_roles()
+        member_role_ids = {role.id for role in member.roles}
+        return bool(member_role_ids.intersection(submitter_roles))
+
 
 class SelectionCache:
     """In-memory tracker for a panel's currently-selected game, per user.
