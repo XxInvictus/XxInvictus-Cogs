@@ -571,3 +571,52 @@ class ProposeView(discord.ui.View):
         await interaction.response.send_message(
             "Pick a game to propose an edit for:", view=view, ephemeral=True
         )
+
+
+class SubmissionActionsView(discord.ui.View):
+    def __init__(self, cog, guild, submission_id: str):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.guild = guild
+        self.submission_id = submission_id
+
+    @discord.ui.button(label="Edit", style=discord.ButtonStyle.primary)
+    async def edit(self, interaction: discord.Interaction, button: discord.ui.Button):
+        submission = await self.cog.store.get_submission(self.guild, self.submission_id)
+        view = SubmissionFieldEditorView(self.cog, self.guild, self.submission_id)
+        await interaction.response.send_message(
+            embed=build_submission_embed(submission), view=view, ephemeral=True
+        )
+
+    @discord.ui.button(label="Withdraw", style=discord.ButtonStyle.danger)
+    async def withdraw(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.cog.store.delete_submission(self.guild, self.submission_id)
+        await interaction.response.send_message("Submission withdrawn.", ephemeral=True)
+
+
+class MySubmissionsView(discord.ui.View):
+    def __init__(self, cog, guild, submissions: dict):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.guild = guild
+        options = [
+            discord.SelectOption(label=f"{data['game_name']} ({data['status']})"[:100], value=sid)
+            for sid, data in submissions.items()
+        ][:25]
+        select = discord.ui.Select(placeholder="Choose a submission...", options=options)
+        select.callback = self._on_select
+        self.add_item(select)
+        self._select = select
+
+    async def _on_select(self, interaction: discord.Interaction):
+        submission_id = self._select.values[0]
+        submission = await self.cog.store.get_submission(self.guild, submission_id)
+        if submission["status"] == "pending":
+            view = SubmissionActionsView(self.cog, self.guild, submission_id)
+            await interaction.response.send_message(
+                embed=build_submission_embed(submission), view=view, ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                embed=build_submission_embed(submission), ephemeral=True
+            )
