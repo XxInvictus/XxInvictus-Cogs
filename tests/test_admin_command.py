@@ -19,7 +19,7 @@ async def test_admin_command_rejects_member_without_permission(cog, guild):
     ctx.author.guild = guild
     ctx.send = AsyncMock()
 
-    await cog.admin.callback(cog, ctx)
+    await cog.gameservers_admin.callback(cog, ctx)
 
     ctx.send.assert_awaited_once()
     assert "permission" in ctx.send.call_args.args[0]
@@ -33,7 +33,7 @@ async def test_admin_command_opens_view_for_admin(cog, guild):
     ctx.author.guild = guild
     ctx.send = AsyncMock()
 
-    await cog.admin.callback(cog, ctx)
+    await cog.gameservers_admin.callback(cog, ctx)
 
     ctx.send.assert_awaited_once()
     assert ctx.send.call_args.kwargs["view"] is not None

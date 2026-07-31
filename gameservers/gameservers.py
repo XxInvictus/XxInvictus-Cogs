@@ -4,7 +4,7 @@ import discord
 from redbot.core import Config, commands
 
 from .store import CONFIG_IDENTIFIER, GUILD_DEFAULTS, GameStore, SelectionCache
-from .views import AdminView, PanelView
+from .views import AdminView, MySubmissionsView, PanelView, ProposeView
 
 
 class GameServers(commands.Cog):
@@ -53,9 +53,15 @@ class GameServers(commands.Cog):
     async def cog_unload(self) -> None:
         pass
 
-    @commands.hybrid_command(name="admin")
+    @commands.hybrid_group(name="gameservers")
     @commands.guild_only()
-    async def admin(self, ctx: commands.Context) -> None:
+    async def gameservers(self, ctx: commands.Context) -> None:
+        """Manage and use the GameServers panel."""
+        if ctx.invoked_subcommand is None:
+            await ctx.send_help(ctx.command)
+
+    @gameservers.command(name="admin")
+    async def gameservers_admin(self, ctx: commands.Context) -> None:
         """Open the GameServers admin panel."""
         allowed = await self.store.can_manage(ctx.author)
         if not allowed:
@@ -63,3 +69,23 @@ class GameServers(commands.Cog):
             return
         view = AdminView(self, ctx.guild)
         await ctx.send("GameServers Admin", view=view, ephemeral=True)
+
+    @gameservers.command(name="propose")
+    async def gameservers_propose(self, ctx: commands.Context) -> None:
+        """Propose a new game or an edit to an existing one."""
+        allowed = await self.store.can_submit(ctx.author)
+        if not allowed:
+            await ctx.send("You don't have permission to propose games.", ephemeral=True)
+            return
+        view = ProposeView(self, ctx.guild)
+        await ctx.send("Propose a Game", view=view, ephemeral=True)
+
+    @gameservers.command(name="submissions")
+    async def gameservers_submissions(self, ctx: commands.Context) -> None:
+        """View the status of your own game proposals."""
+        own = await self.store.list_submissions_by_user(ctx.guild, ctx.author.id)
+        if not own:
+            await ctx.send("You haven't submitted any proposals yet.", ephemeral=True)
+            return
+        view = MySubmissionsView(self, ctx.guild, own)
+        await ctx.send("Your Submissions", view=view, ephemeral=True)
