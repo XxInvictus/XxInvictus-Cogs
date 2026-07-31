@@ -393,6 +393,23 @@ class AdminView(discord.ui.View):
             "Select the channel to post the panel in:", view=view, ephemeral=True
         )
 
+    @discord.ui.button(label="Review Submissions", style=discord.ButtonStyle.primary)
+    async def review_submissions(self, interaction: discord.Interaction, button: discord.ui.Button):
+        pending = await self.cog.store.list_pending_submissions(self.guild)
+        if not pending:
+            await interaction.response.send_message("No pending submissions.", ephemeral=True)
+            return
+        view = SelectSubmissionToReviewView(self.cog, self.guild, pending)
+        await interaction.response.send_message("Pick a submission to review:", view=view, ephemeral=True)
+
+    @discord.ui.button(label="Manage Submitter Roles", style=discord.ButtonStyle.secondary)
+    async def manage_submitter_roles(self, interaction: discord.Interaction, button: discord.ui.Button):
+        current = await self.cog.store.get_submitter_roles(self.guild)
+        view = ManageSubmitterRolesView(self.cog, self.guild, current)
+        await interaction.response.send_message(
+            "Select the roles allowed to propose new games/edits:", view=view, ephemeral=True
+        )
+
 
 class AddSubmissionFieldModal(discord.ui.Modal, title="Add Field"):
     field_name = discord.ui.TextInput(label="Field name", max_length=100)
@@ -620,3 +637,87 @@ class MySubmissionsView(discord.ui.View):
             await interaction.response.send_message(
                 embed=build_submission_embed(submission), ephemeral=True
             )
+
+
+class SubmissionReviewView(discord.ui.View):
+    def __init__(self, cog, guild, submission_id: str):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.guild = guild
+        self.submission_id = submission_id
+
+    @discord.ui.button(label="Approve", style=discord.ButtonStyle.success)
+    async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
+        result = await self.cog.store.approve_submission(self.guild, self.submission_id)
+        if result == "approved":
+            submission = await self.cog.store.get_submission(self.guild, self.submission_id)
+            if submission["type"] == "new_game":
+                await self.cog.refresh_panel(self.guild)
+            await interaction.response.send_message("Submission approved.", ephemeral=True)
+        elif result == "auto_rejected_name_exists":
+            await interaction.response.send_message(
+                "Could not approve: a game with that name already exists. Submission auto-rejected.",
+                ephemeral=True,
+            )
+        elif result == "auto_rejected_target_missing":
+            await interaction.response.send_message(
+                "Could not approve: the target game no longer exists. Submission auto-rejected.",
+                ephemeral=True,
+            )
+        else:
+            await interaction.response.send_message("This submission can no longer be reviewed.", ephemeral=True)
+
+    @discord.ui.button(label="Reject", style=discord.ButtonStyle.danger)
+    async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
+        rejected = await self.cog.store.reject_submission(self.guild, self.submission_id)
+        await interaction.response.send_message(
+            "Submission rejected." if rejected else "This submission can no longer be reviewed.",
+            ephemeral=True,
+        )
+
+
+class SelectSubmissionToReviewView(discord.ui.View):
+    def __init__(self, cog, guild, submissions: dict):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.guild = guild
+        options = [
+            discord.SelectOption(
+                label=f"{data['game_name']} ({'New' if data['type'] == 'new_game' else 'Edit'})"[:100],
+                value=sid,
+            )
+            for sid, data in submissions.items()
+        ][:25]
+        select = discord.ui.Select(placeholder="Choose a submission to review...", options=options)
+        select.callback = self._on_select
+        self.add_item(select)
+        self._select = select
+
+    async def _on_select(self, interaction: discord.Interaction):
+        submission_id = self._select.values[0]
+        submission = await self.cog.store.get_submission(self.guild, submission_id)
+        view = SubmissionReviewView(self.cog, self.guild, submission_id)
+        await interaction.response.send_message(
+            embed=build_submission_embed(submission), view=view, ephemeral=True
+        )
+
+
+class ManageSubmitterRolesView(discord.ui.View):
+    def __init__(self, cog, guild, current_role_ids: list):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.guild = guild
+        select = discord.ui.RoleSelect(
+            placeholder="Roles allowed to submit proposals",
+            min_values=0,
+            max_values=25,
+            default_values=[discord.Object(id=role_id) for role_id in current_role_ids],
+        )
+        select.callback = self._on_select
+        self.add_item(select)
+        self._select = select
+
+    async def _on_select(self, interaction: discord.Interaction):
+        role_ids = [role.id for role in self._select.values]
+        await self.cog.store.set_submitter_roles(self.guild, role_ids)
+        await interaction.response.send_message("Submitter roles updated.", ephemeral=True)

@@ -27,3 +27,7 @@ def test_propose_view_class_exists():
 
 def test_my_submissions_view_class_exists():
     assert hasattr(views, "MySubmissionsView")
+
+
+def test_submission_review_view_class_exists():
+    assert hasattr(views, "SubmissionReviewView")
