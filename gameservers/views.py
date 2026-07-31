@@ -100,3 +100,173 @@ class SetupPanelView(discord.ui.View):
         await self.cog.store.set_panel(self.guild, channel.id, message.id)
         self.cog.bot.add_view(view, message_id=message.id)
         await interaction.response.send_message(f"Panel posted in {channel.mention}.", ephemeral=True)
+
+
+class AddFieldModal(discord.ui.Modal, title="Add Field"):
+    field_name = discord.ui.TextInput(label="Field name", max_length=100)
+    field_value = discord.ui.TextInput(
+        label="Field value", max_length=1000, style=discord.TextStyle.paragraph
+    )
+
+    def __init__(self, cog, guild, game_name: str):
+        super().__init__()
+        self.cog = cog
+        self.guild = guild
+        self.game_name = game_name
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await self.cog.store.set_field(self.guild, self.game_name, self.field_name.value, self.field_value.value)
+        game = await self.cog.store.get_game(self.guild, self.game_name)
+        await interaction.response.send_message(
+            embed=build_game_embed(self.game_name, game["fields"]), ephemeral=True
+        )
+
+
+class EditFieldModal(discord.ui.Modal, title="Edit Field"):
+    def __init__(self, cog, guild, game_name: str, field_name: str, current_value: str):
+        super().__init__()
+        self.cog = cog
+        self.guild = guild
+        self.game_name = game_name
+        self.field_name = field_name
+        self.field_value = discord.ui.TextInput(
+            label=f"Value for {field_name}"[:45],
+            default=current_value,
+            max_length=1000,
+            style=discord.TextStyle.paragraph,
+        )
+        self.add_item(self.field_value)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await self.cog.store.set_field(self.guild, self.game_name, self.field_name, self.field_value.value)
+        game = await self.cog.store.get_game(self.guild, self.game_name)
+        await interaction.response.send_message(
+            embed=build_game_embed(self.game_name, game["fields"]), ephemeral=True
+        )
+
+
+class RenameGameModal(discord.ui.Modal, title="Rename Game"):
+    new_name = discord.ui.TextInput(label="New name", max_length=100)
+
+    def __init__(self, cog, guild, game_name: str):
+        super().__init__()
+        self.cog = cog
+        self.guild = guild
+        self.game_name = game_name
+
+    async def on_submit(self, interaction: discord.Interaction):
+        renamed = await self.cog.store.rename_game(self.guild, self.game_name, self.new_name.value)
+        if not renamed:
+            await interaction.response.send_message(
+                f"Could not rename to **{self.new_name.value}** (name already in use, or game missing).",
+                ephemeral=True,
+            )
+            return
+        await self.cog.refresh_panel(self.guild)
+        await interaction.response.send_message(f"Renamed to **{self.new_name.value}**.", ephemeral=True)
+
+
+class SelectFieldView(discord.ui.View):
+    def __init__(self, cog, guild, game_name: str, field_names: list, *, action: str):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.guild = guild
+        self.game_name = game_name
+        self.action = action
+        select = discord.ui.Select(
+            placeholder="Choose a field...",
+            options=[discord.SelectOption(label=name) for name in field_names[:25]],
+        )
+        select.callback = self._on_select
+        self.add_item(select)
+        self._select = select
+
+    async def _on_select(self, interaction: discord.Interaction):
+        field_name = self._select.values[0]
+        if self.action == "edit":
+            game = await self.cog.store.get_game(self.guild, self.game_name)
+            await interaction.response.send_modal(
+                EditFieldModal(self.cog, self.guild, self.game_name, field_name, game["fields"][field_name])
+            )
+        else:
+            await self.cog.store.remove_field(self.guild, self.game_name, field_name)
+            game = await self.cog.store.get_game(self.guild, self.game_name)
+            await interaction.response.send_message(
+                embed=build_game_embed(self.game_name, game["fields"]), ephemeral=True
+            )
+
+
+class ManageAccessRolesView(discord.ui.View):
+    def __init__(self, cog, guild, game_name: str, current_role_ids: list):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.guild = guild
+        self.game_name = game_name
+        select = discord.ui.RoleSelect(
+            placeholder="Roles allowed to view details (none = everyone)",
+            min_values=0,
+            max_values=25,
+            default_values=[discord.Object(id=role_id) for role_id in current_role_ids],
+        )
+        select.callback = self._on_select
+        self.add_item(select)
+        self._select = select
+
+    async def _on_select(self, interaction: discord.Interaction):
+        role_ids = [role.id for role in self._select.values]
+        await self.cog.store.set_access_roles(self.guild, self.game_name, role_ids)
+        await interaction.response.send_message("Access roles updated.", ephemeral=True)
+
+
+class GameEditorView(discord.ui.View):
+    def __init__(self, cog, guild, game_name: str):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.guild = guild
+        self.game_name = game_name
+
+    @discord.ui.button(label="Add Field", style=discord.ButtonStyle.success)
+    async def add_field(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(AddFieldModal(self.cog, self.guild, self.game_name))
+
+    @discord.ui.button(label="Edit Field", style=discord.ButtonStyle.primary)
+    async def edit_field(self, interaction: discord.Interaction, button: discord.ui.Button):
+        game = await self.cog.store.get_game(self.guild, self.game_name)
+        if not game or not game["fields"]:
+            await interaction.response.send_message("This game has no fields to edit yet.", ephemeral=True)
+            return
+        view = SelectFieldView(self.cog, self.guild, self.game_name, list(game["fields"].keys()), action="edit")
+        await interaction.response.send_message("Pick a field to edit:", view=view, ephemeral=True)
+
+    @discord.ui.button(label="Remove Field", style=discord.ButtonStyle.danger)
+    async def remove_field(self, interaction: discord.Interaction, button: discord.ui.Button):
+        game = await self.cog.store.get_game(self.guild, self.game_name)
+        if not game or not game["fields"]:
+            await interaction.response.send_message("This game has no fields to remove.", ephemeral=True)
+            return
+        view = SelectFieldView(self.cog, self.guild, self.game_name, list(game["fields"].keys()), action="remove")
+        await interaction.response.send_message("Pick a field to remove:", view=view, ephemeral=True)
+
+    @discord.ui.button(label="Manage Access Roles", style=discord.ButtonStyle.secondary)
+    async def manage_access_roles(self, interaction: discord.Interaction, button: discord.ui.Button):
+        game = await self.cog.store.get_game(self.guild, self.game_name)
+        view = ManageAccessRolesView(self.cog, self.guild, self.game_name, game["access_roles"])
+        await interaction.response.send_message(
+            "Select the roles allowed to view this game's details (none = everyone):",
+            view=view,
+            ephemeral=True,
+        )
+
+    @discord.ui.button(label="Rename Game", style=discord.ButtonStyle.secondary)
+    async def rename_game(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(RenameGameModal(self.cog, self.guild, self.game_name))
+
+    @discord.ui.button(label="Delete Game", style=discord.ButtonStyle.danger)
+    async def delete_game(self, interaction: discord.Interaction, button: discord.ui.Button):
+        deleted = await self.cog.store.delete_game(self.guild, self.game_name)
+        if deleted:
+            await self.cog.refresh_panel(self.guild)
+        await interaction.response.send_message(
+            f"Deleted **{self.game_name}**." if deleted else "That game no longer exists.",
+            ephemeral=True,
+        )
