@@ -106,3 +106,16 @@ class GameStore:
                 return False
             games[key]["access_roles"] = list(role_ids)
         return True
+
+    async def get_panel(self, guild) -> tuple:
+        channel_id = await self.config.guild(guild).panel_channel_id()
+        message_id = await self.config.guild(guild).panel_message_id()
+        return channel_id, message_id
+
+    async def set_panel(self, guild, channel_id: int, message_id: int) -> None:
+        await self.config.guild(guild).panel_channel_id.set(channel_id)
+        await self.config.guild(guild).panel_message_id.set(message_id)
+
+    async def clear_panel(self, guild) -> None:
+        await self.config.guild(guild).panel_channel_id.set(None)
+        await self.config.guild(guild).panel_message_id.set(None)
