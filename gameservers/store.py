@@ -10,6 +10,14 @@ GUILD_DEFAULTS = {
 }
 
 
+def can_view_game(member, game: dict) -> bool:
+    access_roles = game.get("access_roles", [])
+    if not access_roles:
+        return True
+    member_role_ids = {role.id for role in member.roles}
+    return bool(member_role_ids.intersection(access_roles))
+
+
 class GameStore:
     """Config-backed CRUD and permission checks for the GameServers cog.
 
@@ -75,4 +83,26 @@ class GameStore:
             if key is None or field_name not in games[key]["fields"]:
                 return False
             del games[key]["fields"][field_name]
+        return True
+
+    async def get_management_roles(self, guild) -> list:
+        return await self.config.guild(guild).management_roles()
+
+    async def set_management_roles(self, guild, role_ids: list) -> None:
+        await self.config.guild(guild).management_roles.set(list(role_ids))
+
+    async def can_manage(self, member) -> bool:
+        perms = member.guild_permissions
+        if perms.administrator or perms.manage_guild:
+            return True
+        management_roles = await self.config.guild(member.guild).management_roles()
+        member_role_ids = {role.id for role in member.roles}
+        return bool(member_role_ids.intersection(management_roles))
+
+    async def set_access_roles(self, guild, game_name: str, role_ids: list) -> bool:
+        async with self.config.guild(guild).games() as games:
+            key = self._find_key(games, game_name)
+            if key is None:
+                return False
+            games[key]["access_roles"] = list(role_ids)
         return True
