@@ -392,3 +392,114 @@ class AdminView(discord.ui.View):
         await interaction.response.send_message(
             "Select the channel to post the panel in:", view=view, ephemeral=True
         )
+
+
+class AddSubmissionFieldModal(discord.ui.Modal, title="Add Field"):
+    field_name = discord.ui.TextInput(label="Field name", max_length=100)
+    field_value = discord.ui.TextInput(
+        label="Field value", max_length=1000, style=discord.TextStyle.paragraph
+    )
+
+    def __init__(self, cog, guild, submission_id: str):
+        super().__init__()
+        self.cog = cog
+        self.guild = guild
+        self.submission_id = submission_id
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await self.cog.store.set_submission_field(
+            self.guild, self.submission_id, self.field_name.value, self.field_value.value
+        )
+        submission = await self.cog.store.get_submission(self.guild, self.submission_id)
+        await interaction.response.send_message(embed=build_submission_embed(submission), ephemeral=True)
+
+
+class EditSubmissionFieldModal(discord.ui.Modal, title="Edit Field"):
+    def __init__(self, cog, guild, submission_id: str, field_name: str, current_value: str):
+        super().__init__()
+        self.cog = cog
+        self.guild = guild
+        self.submission_id = submission_id
+        self.field_name = field_name
+        self.field_value = discord.ui.TextInput(
+            label=f"Value for {field_name}"[:45],
+            default=current_value,
+            max_length=1000,
+            style=discord.TextStyle.paragraph,
+        )
+        self.add_item(self.field_value)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await self.cog.store.set_submission_field(
+            self.guild, self.submission_id, self.field_name, self.field_value.value
+        )
+        submission = await self.cog.store.get_submission(self.guild, self.submission_id)
+        await interaction.response.send_message(embed=build_submission_embed(submission), ephemeral=True)
+
+
+class SelectSubmissionFieldView(discord.ui.View):
+    def __init__(self, cog, guild, submission_id: str, field_names: list, *, action: str):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.guild = guild
+        self.submission_id = submission_id
+        self.action = action
+        select = discord.ui.Select(
+            placeholder="Choose a field...",
+            options=[discord.SelectOption(label=name) for name in field_names[:25]],
+        )
+        select.callback = self._on_select
+        self.add_item(select)
+        self._select = select
+
+    async def _on_select(self, interaction: discord.Interaction):
+        field_name = self._select.values[0]
+        if self.action == "edit":
+            submission = await self.cog.store.get_submission(self.guild, self.submission_id)
+            await interaction.response.send_modal(
+                EditSubmissionFieldModal(
+                    self.cog, self.guild, self.submission_id, field_name, submission["fields"][field_name]
+                )
+            )
+        else:
+            await self.cog.store.remove_submission_field(self.guild, self.submission_id, field_name)
+            submission = await self.cog.store.get_submission(self.guild, self.submission_id)
+            await interaction.response.send_message(
+                embed=build_submission_embed(submission), ephemeral=True
+            )
+
+
+class SubmissionFieldEditorView(discord.ui.View):
+    def __init__(self, cog, guild, submission_id: str):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.guild = guild
+        self.submission_id = submission_id
+
+    @discord.ui.button(label="Add Field", style=discord.ButtonStyle.success)
+    async def add_field(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(
+            AddSubmissionFieldModal(self.cog, self.guild, self.submission_id)
+        )
+
+    @discord.ui.button(label="Edit Field", style=discord.ButtonStyle.primary)
+    async def edit_field(self, interaction: discord.Interaction, button: discord.ui.Button):
+        submission = await self.cog.store.get_submission(self.guild, self.submission_id)
+        if not submission or not submission["fields"]:
+            await interaction.response.send_message("This proposal has no fields to edit yet.", ephemeral=True)
+            return
+        view = SelectSubmissionFieldView(
+            self.cog, self.guild, self.submission_id, list(submission["fields"].keys()), action="edit"
+        )
+        await interaction.response.send_message("Pick a field to edit:", view=view, ephemeral=True)
+
+    @discord.ui.button(label="Remove Field", style=discord.ButtonStyle.danger)
+    async def remove_field(self, interaction: discord.Interaction, button: discord.ui.Button):
+        submission = await self.cog.store.get_submission(self.guild, self.submission_id)
+        if not submission or not submission["fields"]:
+            await interaction.response.send_message("This proposal has no fields to remove.", ephemeral=True)
+            return
+        view = SelectSubmissionFieldView(
+            self.cog, self.guild, self.submission_id, list(submission["fields"].keys()), action="remove"
+        )
+        await interaction.response.send_message("Pick a field to remove:", view=view, ephemeral=True)

@@ -15,3 +15,7 @@ def test_game_editor_view_class_exists():
 
 def test_admin_view_class_exists():
     assert hasattr(views, "AdminView")
+
+
+def test_submission_field_editor_view_class_exists():
+    assert hasattr(views, "SubmissionFieldEditorView")
