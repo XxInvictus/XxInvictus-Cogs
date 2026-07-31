@@ -1,5 +1,5 @@
 {
-    "author": ["Dale Sharp"],
+    "author": ["XxInvictus"],
     "min_bot_version": "3.5.0",
     "max_bot_version": "0.0.0",
     "description": "Lets members pick a game from a persistent dropdown panel and view that game's configured server details in an ephemeral reply. Games, custom fields, and per-game viewing roles are configured per-server through an interactive admin UI.",
