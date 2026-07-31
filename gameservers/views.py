@@ -318,8 +318,10 @@ class AddFieldModal(discord.ui.Modal, title="Add Field"):
         value = wrap_spoiler(self.field_value.value, self.spoiler)
         await self.cog.store.set_field(self.guild, self.game_name, self.field_name.value, value)
         game = await self.cog.store.get_game(self.guild, self.game_name)
-        await interaction.response.send_message(
-            embed=build_game_embed(self.game_name, game["fields"]), ephemeral=True
+        await interaction.response.edit_message(
+            content=None,
+            embed=build_game_embed(self.game_name, game["fields"]),
+            view=GameEditorView(self.cog, self.guild, self.game_name),
         )
 
 
@@ -344,8 +346,10 @@ class EditFieldModal(discord.ui.Modal, title="Edit Field"):
         value = wrap_spoiler(self.field_value.value, self.spoiler)
         await self.cog.store.set_field(self.guild, self.game_name, self.field_name, value)
         game = await self.cog.store.get_game(self.guild, self.game_name)
-        await interaction.response.send_message(
-            embed=build_game_embed(self.game_name, game["fields"]), ephemeral=True
+        await interaction.response.edit_message(
+            content=None,
+            embed=build_game_embed(self.game_name, game["fields"]),
+            view=GameEditorView(self.cog, self.guild, self.game_name),
         )
 
 
@@ -361,13 +365,20 @@ class RenameGameModal(discord.ui.Modal, title="Rename Game"):
     async def on_submit(self, interaction: discord.Interaction):
         renamed = await self.cog.store.rename_game(self.guild, self.game_name, self.new_name.value)
         if not renamed:
-            await interaction.response.send_message(
-                f"Could not rename to **{self.new_name.value}** (name already in use, or game missing).",
-                ephemeral=True,
+            game = await self.cog.store.get_game(self.guild, self.game_name)
+            await interaction.response.edit_message(
+                content=f"Could not rename to **{self.new_name.value}** (name already in use, or game missing).",
+                embed=build_game_embed(self.game_name, game["fields"]) if game else None,
+                view=GameEditorView(self.cog, self.guild, self.game_name) if game else None,
             )
             return
         await self.cog.refresh_panels(self.guild)
-        await interaction.response.send_message(f"Renamed to **{self.new_name.value}**.", ephemeral=True)
+        game = await self.cog.store.get_game(self.guild, self.new_name.value)
+        await interaction.response.edit_message(
+            content=None,
+            embed=build_game_embed(self.new_name.value, game["fields"]),
+            view=GameEditorView(self.cog, self.guild, self.new_name.value),
+        )
 
 
 class SelectFieldView(discord.ui.View):
@@ -399,8 +410,10 @@ class SelectFieldView(discord.ui.View):
         else:
             await self.cog.store.remove_field(self.guild, self.game_name, field_name)
             game = await self.cog.store.get_game(self.guild, self.game_name)
-            await interaction.response.send_message(
-                embed=build_game_embed(self.game_name, game["fields"]), ephemeral=True
+            await interaction.response.edit_message(
+                content=None,
+                embed=build_game_embed(self.game_name, game["fields"]),
+                view=GameEditorView(self.cog, self.guild, self.game_name),
             )
 
 
@@ -423,7 +436,12 @@ class ManageAccessRolesView(discord.ui.View):
     async def _on_select(self, interaction: discord.Interaction):
         role_ids = [role.id for role in self._select.values]
         await self.cog.store.set_access_roles(self.guild, self.game_name, role_ids)
-        await interaction.response.send_message("Access roles updated.", ephemeral=True)
+        game = await self.cog.store.get_game(self.guild, self.game_name)
+        await interaction.response.edit_message(
+            content="Access roles updated.",
+            embed=build_game_embed(self.game_name, game["fields"]) if game else None,
+            view=GameEditorView(self.cog, self.guild, self.game_name) if game else None,
+        )
 
 
 class GameEditorView(discord.ui.View):
@@ -450,31 +468,31 @@ class GameEditorView(discord.ui.View):
     async def edit_field(self, interaction: discord.Interaction, button: discord.ui.Button):
         game = await self.cog.store.get_game(self.guild, self.game_name)
         if not game or not game["fields"]:
-            await interaction.response.send_message("This game has no fields to edit yet.", ephemeral=True)
+            await interaction.response.edit_message(content="This game has no fields to edit yet.", view=self)
             return
         view = SelectFieldView(
             self.cog, self.guild, self.game_name, list(game["fields"].keys()),
             action="edit", spoiler=self.spoiler_mode,
         )
-        await interaction.response.send_message("Pick a field to edit:", view=view, ephemeral=True)
+        await interaction.response.edit_message(content="Pick a field to edit:", embed=None, view=view)
 
     @discord.ui.button(label="Remove Field", style=discord.ButtonStyle.danger)
     async def remove_field(self, interaction: discord.Interaction, button: discord.ui.Button):
         game = await self.cog.store.get_game(self.guild, self.game_name)
         if not game or not game["fields"]:
-            await interaction.response.send_message("This game has no fields to remove.", ephemeral=True)
+            await interaction.response.edit_message(content="This game has no fields to remove.", view=self)
             return
         view = SelectFieldView(self.cog, self.guild, self.game_name, list(game["fields"].keys()), action="remove")
-        await interaction.response.send_message("Pick a field to remove:", view=view, ephemeral=True)
+        await interaction.response.edit_message(content="Pick a field to remove:", embed=None, view=view)
 
     @discord.ui.button(label="Manage Access Roles", style=discord.ButtonStyle.secondary)
     async def manage_access_roles(self, interaction: discord.Interaction, button: discord.ui.Button):
         game = await self.cog.store.get_game(self.guild, self.game_name)
         view = ManageAccessRolesView(self.cog, self.guild, self.game_name, game["access_roles"])
-        await interaction.response.send_message(
-            "Select the roles allowed to view this game's details (none = everyone):",
+        await interaction.response.edit_message(
+            content="Select the roles allowed to view this game's details (none = everyone):",
+            embed=None,
             view=view,
-            ephemeral=True,
         )
 
     @discord.ui.button(label="Rename Game", style=discord.ButtonStyle.secondary)
@@ -486,9 +504,10 @@ class GameEditorView(discord.ui.View):
         deleted = await self.cog.store.delete_game(self.guild, self.game_name)
         if deleted:
             await self.cog.refresh_panels(self.guild)
-        await interaction.response.send_message(
-            f"Deleted **{self.game_name}**." if deleted else "That game no longer exists.",
-            ephemeral=True,
+        await interaction.response.edit_message(
+            content=f"Deleted **{self.game_name}**." if deleted else "That game no longer exists.",
+            embed=None,
+            view=None,
         )
 
 
@@ -503,15 +522,15 @@ class AddGameModal(discord.ui.Modal, title="Add Game"):
     async def on_submit(self, interaction: discord.Interaction):
         added = await self.cog.store.add_game(self.guild, self.name.value)
         if not added:
-            await interaction.response.send_message(
-                f"A game named **{self.name.value}** already exists.", ephemeral=True
+            await interaction.response.edit_message(
+                content=f"A game named **{self.name.value}** already exists.", view=None,
             )
             return
         await self.cog.refresh_panels(self.guild)
         game = await self.cog.store.get_game(self.guild, self.name.value)
         view = GameEditorView(self.cog, self.guild, self.name.value)
-        await interaction.response.send_message(
-            embed=build_game_embed(self.name.value, game["fields"]), view=view, ephemeral=True
+        await interaction.response.edit_message(
+            content=None, embed=build_game_embed(self.name.value, game["fields"]), view=view,
         )
 
 
@@ -532,8 +551,8 @@ class SelectGameToManageView(discord.ui.View):
         game_name = self._select.values[0]
         game = await self.cog.store.get_game(self.guild, game_name)
         view = GameEditorView(self.cog, self.guild, game_name)
-        await interaction.response.send_message(
-            embed=build_game_embed(game_name, game["fields"]), view=view, ephemeral=True
+        await interaction.response.edit_message(
+            content=None, embed=build_game_embed(game_name, game["fields"]), view=view,
         )
 
 
@@ -555,7 +574,9 @@ class ManageManagementRolesView(discord.ui.View):
     async def _on_select(self, interaction: discord.Interaction):
         role_ids = [role.id for role in self._select.values]
         await self.cog.store.set_management_roles(self.guild, role_ids)
-        await interaction.response.send_message("Management roles updated.", ephemeral=True)
+        await interaction.response.edit_message(
+            content="Management roles updated.", embed=None, view=AdminView(self.cog, self.guild),
+        )
 
 
 class AdminView(discord.ui.View):
@@ -572,21 +593,21 @@ class AdminView(discord.ui.View):
     async def manage_games(self, interaction: discord.Interaction, button: discord.ui.Button):
         games = await self.cog.store.list_games(self.guild)
         if not games:
-            await interaction.response.send_message(
-                "No games configured yet. Use Add Game first.", ephemeral=True
+            await interaction.response.edit_message(
+                content="No games configured yet. Use Add Game first.", view=self,
             )
             return
         view = SelectGameToManageView(self.cog, self.guild, list(games.keys()))
-        await interaction.response.send_message("Pick a game to manage:", view=view, ephemeral=True)
+        await interaction.response.edit_message(content="Pick a game to manage:", embed=None, view=view)
 
     @discord.ui.button(label="Manage Roles", style=discord.ButtonStyle.secondary)
     async def manage_roles(self, interaction: discord.Interaction, button: discord.ui.Button):
         current = await self.cog.store.get_management_roles(self.guild)
         view = ManageManagementRolesView(self.cog, self.guild, current)
-        await interaction.response.send_message(
-            "Select the roles (besides Discord admins) allowed to manage GameServers:",
+        await interaction.response.edit_message(
+            content="Select the roles (besides Discord admins) allowed to manage GameServers:",
+            embed=None,
             view=view,
-            ephemeral=True,
         )
 
     @discord.ui.button(label="Manage Panels", style=discord.ButtonStyle.secondary)
