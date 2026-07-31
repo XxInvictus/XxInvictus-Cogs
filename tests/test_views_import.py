@@ -5,8 +5,8 @@ def test_panel_view_class_exists():
     assert hasattr(views, "PanelView")
 
 
-def test_setup_panel_view_class_exists():
-    assert hasattr(views, "SetupPanelView")
+def test_manage_panels_view_class_exists():
+    assert hasattr(views, "ManagePanelsView")
 
 
 def test_game_editor_view_class_exists():

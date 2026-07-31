@@ -95,7 +95,89 @@ class PanelView(discord.ui.View):
         self.add_item(_GetDetailsButton(cog))
 
 
-class SetupPanelView(discord.ui.View):
+def _panel_option_label(guild, panel: dict) -> str:
+    channel = guild.get_channel(panel["channel_id"])
+    channel_label = f"#{channel.name}" if channel is not None else "deleted-channel"
+    return f"{channel_label} ({panel['message_id']})"[:100]
+
+
+class SelectPanelGamesView(discord.ui.View):
+    def __init__(self, cog, guild, channel, game_names: list, *, message_id, current_selection=None):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.guild = guild
+        self.channel = channel
+        self.message_id = message_id
+        current_selection = current_selection or []
+        select = discord.ui.Select(
+            placeholder="Choose games...",
+            min_values=1,
+            max_values=min(len(game_names), 25),
+            options=[
+                discord.SelectOption(label=name, default=(name in current_selection))
+                for name in game_names[:25]
+            ],
+        )
+        select.callback = self._on_select
+        self.add_item(select)
+        self._select = select
+
+    async def _on_select(self, interaction: discord.Interaction):
+        chosen = list(self._select.values)
+        if self.message_id is None:
+            await self.cog.create_panel(self.guild, self.channel, chosen)
+            await interaction.response.edit_message(
+                content=f"Panel posted in {self.channel.mention}.", embed=None, view=None
+            )
+        else:
+            await self.cog.store.set_panel_games(self.guild, self.message_id, chosen)
+            await self.cog.refresh_panels(self.guild)
+            await interaction.response.edit_message(
+                content="Panel's game list updated.", embed=None, view=None
+            )
+
+
+class ChoosePanelGamesView(discord.ui.View):
+    def __init__(self, cog, guild, channel, *, message_id, current_selection=None):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.guild = guild
+        self.channel = channel
+        self.message_id = message_id
+        self.current_selection = current_selection
+
+    @discord.ui.button(label="All Games", style=discord.ButtonStyle.primary)
+    async def all_games(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.message_id is None:
+            await self.cog.create_panel(self.guild, self.channel, None)
+            await interaction.response.edit_message(
+                content=f"Panel posted in {self.channel.mention}.", embed=None, view=None
+            )
+        else:
+            await self.cog.store.set_panel_games(self.guild, self.message_id, None)
+            await self.cog.refresh_panels(self.guild)
+            await interaction.response.edit_message(
+                content="Panel's game list updated.", embed=None, view=None
+            )
+
+    @discord.ui.button(label="Choose Specific Games", style=discord.ButtonStyle.secondary)
+    async def choose_specific(self, interaction: discord.Interaction, button: discord.ui.Button):
+        games = await self.cog.store.list_games(self.guild)
+        if not games:
+            await interaction.response.edit_message(
+                content="No games configured yet.", embed=None, view=None
+            )
+            return
+        view = SelectPanelGamesView(
+            self.cog, self.guild, self.channel, list(games.keys()),
+            message_id=self.message_id, current_selection=self.current_selection,
+        )
+        await interaction.response.edit_message(
+            content="Select the games this panel should show:", embed=None, view=view
+        )
+
+
+class AddPanelChannelSelectView(discord.ui.View):
     def __init__(self, cog, guild):
         super().__init__(timeout=300)
         self.cog = cog
@@ -104,29 +186,119 @@ class SetupPanelView(discord.ui.View):
     @discord.ui.select(cls=discord.ui.ChannelSelect, channel_types=[discord.ChannelType.text])
     async def channel_select(self, interaction: discord.Interaction, select: discord.ui.ChannelSelect):
         channel = await select.values[0].fetch()
+        view = ChoosePanelGamesView(self.cog, self.guild, channel, message_id=None)
+        await interaction.response.edit_message(
+            content=f"Which games should the panel in {channel.mention} show?", embed=None, view=view
+        )
 
-        old_channel_id, old_message_id = await self.cog.store.get_panel(self.guild)
-        if old_channel_id is not None and old_message_id is not None:
-            old_channel = self.guild.get_channel(old_channel_id)
-            if old_channel is not None:
-                try:
-                    old_message = await old_channel.fetch_message(old_message_id)
-                    await old_message.delete()
-                except discord.NotFound:
-                    pass
 
+class ChangePanelChannelView(discord.ui.View):
+    def __init__(self, cog, guild, message_id: int):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.guild = guild
+        self.message_id = message_id
+
+    @discord.ui.select(cls=discord.ui.ChannelSelect, channel_types=[discord.ChannelType.text])
+    async def channel_select(self, interaction: discord.Interaction, select: discord.ui.ChannelSelect):
+        new_channel = await select.values[0].fetch()
+        panel = await self.cog.store.get_panel(self.guild, self.message_id)
+        old_channel = self.guild.get_channel(panel["channel_id"]) if panel else None
+        if old_channel is not None:
+            try:
+                old_message = await old_channel.fetch_message(self.message_id)
+                await old_message.delete()
+            except discord.NotFound:
+                pass
+        game_names = panel["game_names"] if panel else None
         games = await self.cog.store.list_games(self.guild)
-        view = PanelView(self.cog, list(games.keys()))
-        message = await channel.send(
+        names_to_show = self.cog._panel_game_names(game_names, games)
+        view = PanelView(self.cog, names_to_show)
+        new_message = await new_channel.send(
             "**Game Server Details** — pick a game, then click Get Details.", view=view
         )
         try:
-            await message.pin()
+            await new_message.pin()
         except discord.HTTPException:
             pass
-        await self.cog.store.set_panel(self.guild, channel.id, message.id)
-        self.cog.bot.add_view(view, message_id=message.id)
-        await interaction.response.send_message(f"Panel posted in {channel.mention}.", ephemeral=True)
+        await self.cog.store.remove_panel(self.guild, self.message_id)
+        await self.cog.store.add_panel(self.guild, new_channel.id, new_message.id, game_names)
+        self.cog.bot.add_view(view, message_id=new_message.id)
+        await interaction.response.edit_message(
+            content=f"Panel moved to {new_channel.mention}.", embed=None, view=None
+        )
+
+
+class ManageSinglePanelView(discord.ui.View):
+    def __init__(self, cog, guild, message_id: int):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.guild = guild
+        self.message_id = message_id
+
+    @discord.ui.button(label="Delete Panel", style=discord.ButtonStyle.danger)
+    async def delete_panel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        panel = await self.cog.store.get_panel(self.guild, self.message_id)
+        if panel is not None:
+            channel = self.guild.get_channel(panel["channel_id"])
+            if channel is not None:
+                try:
+                    message = await channel.fetch_message(self.message_id)
+                    await message.delete()
+                except discord.NotFound:
+                    pass
+        await self.cog.store.remove_panel(self.guild, self.message_id)
+        await interaction.response.edit_message(content="Panel deleted.", embed=None, view=None)
+
+    @discord.ui.button(label="Change Channel", style=discord.ButtonStyle.primary)
+    async def change_channel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        view = ChangePanelChannelView(self.cog, self.guild, self.message_id)
+        await interaction.response.edit_message(
+            content="Select the new channel for this panel:", embed=None, view=view
+        )
+
+    @discord.ui.button(label="Edit Game List", style=discord.ButtonStyle.secondary)
+    async def edit_game_list(self, interaction: discord.Interaction, button: discord.ui.Button):
+        panel = await self.cog.store.get_panel(self.guild, self.message_id)
+        channel = self.guild.get_channel(panel["channel_id"]) if panel else None
+        view = ChoosePanelGamesView(
+            self.cog, self.guild, channel,
+            message_id=self.message_id, current_selection=panel["game_names"] if panel else None,
+        )
+        await interaction.response.edit_message(
+            content="Which games should this panel show?", embed=None, view=view
+        )
+
+
+class ManagePanelsView(discord.ui.View):
+    def __init__(self, cog, guild, panels: list):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.guild = guild
+        self._select = None
+        if panels:
+            select = discord.ui.Select(
+                placeholder="Pick a panel to manage...",
+                options=[
+                    discord.SelectOption(label=_panel_option_label(guild, panel), value=str(panel["message_id"]))
+                    for panel in panels
+                ][:25],
+            )
+            select.callback = self._on_select
+            self.add_item(select)
+            self._select = select
+
+    @discord.ui.button(label="Add Panel", style=discord.ButtonStyle.success)
+    async def add_panel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        view = AddPanelChannelSelectView(self.cog, self.guild)
+        await interaction.response.edit_message(
+            content="Select the channel to post a new panel in:", embed=None, view=view
+        )
+
+    async def _on_select(self, interaction: discord.Interaction):
+        message_id = int(self._select.values[0])
+        view = ManageSinglePanelView(self.cog, self.guild, message_id)
+        await interaction.response.edit_message(content="Manage this panel:", embed=None, view=view)
 
 
 class AddFieldModal(discord.ui.Modal, title="Add Field"):
@@ -417,12 +589,11 @@ class AdminView(discord.ui.View):
             ephemeral=True,
         )
 
-    @discord.ui.button(label="Setup Panel", style=discord.ButtonStyle.secondary)
-    async def setup_panel(self, interaction: discord.Interaction, button: discord.ui.Button):
-        view = SetupPanelView(self.cog, self.guild)
-        await interaction.response.send_message(
-            "Select the channel to post the panel in:", view=view, ephemeral=True
-        )
+    @discord.ui.button(label="Manage Panels", style=discord.ButtonStyle.secondary)
+    async def manage_panels(self, interaction: discord.Interaction, button: discord.ui.Button):
+        panels = await self.cog.store.list_panels(self.guild)
+        view = ManagePanelsView(self.cog, self.guild, panels)
+        await interaction.response.edit_message(content="Manage panels:", embed=None, view=view)
 
     @discord.ui.button(label="Review Submissions", style=discord.ButtonStyle.primary)
     async def review_submissions(self, interaction: discord.Interaction, button: discord.ui.Button):
