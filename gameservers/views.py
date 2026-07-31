@@ -13,6 +13,23 @@ def build_game_embed(game_name: str, fields: dict) -> discord.Embed:
     return embed
 
 
+def build_submission_embed(submission: dict) -> discord.Embed:
+    embed = discord.Embed(title=submission["game_name"], color=discord.Color.blurple())
+    embed.add_field(
+        name="Type",
+        value="New Game" if submission["type"] == "new_game" else "Edit Existing Game",
+        inline=True,
+    )
+    embed.add_field(name="Status", value=submission["status"].capitalize(), inline=True)
+    embed.add_field(name="Submitted by", value=f"<@{submission['submitter_id']}>", inline=True)
+    if submission["fields"]:
+        for name, value in submission["fields"].items():
+            embed.add_field(name=name, value=value, inline=False)
+    else:
+        embed.description = "No fields proposed yet."
+    return embed
+
+
 class _GameSelect(discord.ui.Select):
     def __init__(self, cog, game_names: list):
         options = [discord.SelectOption(label=name) for name in game_names[:25]] or [
