@@ -3,6 +3,16 @@ import discord
 from .store import can_view_game
 
 
+def wrap_spoiler(value: str, spoiler: bool) -> str:
+    return f"||{value}||" if spoiler else value
+
+
+def unwrap_spoiler(value: str):
+    if value.startswith("||") and value.endswith("||") and len(value) >= 4:
+        return value[2:-2], True
+    return value, False
+
+
 def build_game_embed(game_name: str, fields: dict) -> discord.Embed:
     embed = discord.Embed(title=game_name, color=discord.Color.blurple())
     if not fields:
@@ -125,14 +135,16 @@ class AddFieldModal(discord.ui.Modal, title="Add Field"):
         label="Field value", max_length=1000, style=discord.TextStyle.paragraph
     )
 
-    def __init__(self, cog, guild, game_name: str):
-        super().__init__()
+    def __init__(self, cog, guild, game_name: str, *, spoiler: bool = False):
+        super().__init__(title="Add Field (Spoiler)" if spoiler else "Add Field")
         self.cog = cog
         self.guild = guild
         self.game_name = game_name
+        self.spoiler = spoiler
 
     async def on_submit(self, interaction: discord.Interaction):
-        await self.cog.store.set_field(self.guild, self.game_name, self.field_name.value, self.field_value.value)
+        value = wrap_spoiler(self.field_value.value, self.spoiler)
+        await self.cog.store.set_field(self.guild, self.game_name, self.field_name.value, value)
         game = await self.cog.store.get_game(self.guild, self.game_name)
         await interaction.response.send_message(
             embed=build_game_embed(self.game_name, game["fields"]), ephemeral=True
@@ -140,22 +152,25 @@ class AddFieldModal(discord.ui.Modal, title="Add Field"):
 
 
 class EditFieldModal(discord.ui.Modal, title="Edit Field"):
-    def __init__(self, cog, guild, game_name: str, field_name: str, current_value: str):
-        super().__init__()
+    def __init__(self, cog, guild, game_name: str, field_name: str, current_value: str, *, spoiler: bool = False):
+        super().__init__(title="Edit Field (Spoiler)" if spoiler else "Edit Field")
         self.cog = cog
         self.guild = guild
         self.game_name = game_name
         self.field_name = field_name
+        self.spoiler = spoiler
+        raw_value, _ = unwrap_spoiler(current_value)
         self.field_value = discord.ui.TextInput(
             label=f"Value for {field_name}"[:45],
-            default=current_value,
+            default=raw_value,
             max_length=1000,
             style=discord.TextStyle.paragraph,
         )
         self.add_item(self.field_value)
 
     async def on_submit(self, interaction: discord.Interaction):
-        await self.cog.store.set_field(self.guild, self.game_name, self.field_name, self.field_value.value)
+        value = wrap_spoiler(self.field_value.value, self.spoiler)
+        await self.cog.store.set_field(self.guild, self.game_name, self.field_name, value)
         game = await self.cog.store.get_game(self.guild, self.game_name)
         await interaction.response.send_message(
             embed=build_game_embed(self.game_name, game["fields"]), ephemeral=True
@@ -184,12 +199,13 @@ class RenameGameModal(discord.ui.Modal, title="Rename Game"):
 
 
 class SelectFieldView(discord.ui.View):
-    def __init__(self, cog, guild, game_name: str, field_names: list, *, action: str):
+    def __init__(self, cog, guild, game_name: str, field_names: list, *, action: str, spoiler: bool = False):
         super().__init__(timeout=300)
         self.cog = cog
         self.guild = guild
         self.game_name = game_name
         self.action = action
+        self.spoiler = spoiler
         select = discord.ui.Select(
             placeholder="Choose a field...",
             options=[discord.SelectOption(label=name) for name in field_names[:25]],
@@ -203,7 +219,10 @@ class SelectFieldView(discord.ui.View):
         if self.action == "edit":
             game = await self.cog.store.get_game(self.guild, self.game_name)
             await interaction.response.send_modal(
-                EditFieldModal(self.cog, self.guild, self.game_name, field_name, game["fields"][field_name])
+                EditFieldModal(
+                    self.cog, self.guild, self.game_name, field_name, game["fields"][field_name],
+                    spoiler=self.spoiler,
+                )
             )
         else:
             await self.cog.store.remove_field(self.guild, self.game_name, field_name)
@@ -241,10 +260,19 @@ class GameEditorView(discord.ui.View):
         self.cog = cog
         self.guild = guild
         self.game_name = game_name
+        self.spoiler_mode = False
+
+    @discord.ui.button(label="Spoiler: Off", style=discord.ButtonStyle.secondary)
+    async def toggle_spoiler(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.spoiler_mode = not self.spoiler_mode
+        button.label = f"Spoiler: {'On' if self.spoiler_mode else 'Off'}"
+        await interaction.response.edit_message(view=self)
 
     @discord.ui.button(label="Add Field", style=discord.ButtonStyle.success)
     async def add_field(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(AddFieldModal(self.cog, self.guild, self.game_name))
+        await interaction.response.send_modal(
+            AddFieldModal(self.cog, self.guild, self.game_name, spoiler=self.spoiler_mode)
+        )
 
     @discord.ui.button(label="Edit Field", style=discord.ButtonStyle.primary)
     async def edit_field(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -252,7 +280,10 @@ class GameEditorView(discord.ui.View):
         if not game or not game["fields"]:
             await interaction.response.send_message("This game has no fields to edit yet.", ephemeral=True)
             return
-        view = SelectFieldView(self.cog, self.guild, self.game_name, list(game["fields"].keys()), action="edit")
+        view = SelectFieldView(
+            self.cog, self.guild, self.game_name, list(game["fields"].keys()),
+            action="edit", spoiler=self.spoiler_mode,
+        )
         await interaction.response.send_message("Pick a field to edit:", view=view, ephemeral=True)
 
     @discord.ui.button(label="Remove Field", style=discord.ButtonStyle.danger)
@@ -417,50 +448,52 @@ class AddSubmissionFieldModal(discord.ui.Modal, title="Add Field"):
         label="Field value", max_length=1000, style=discord.TextStyle.paragraph
     )
 
-    def __init__(self, cog, guild, submission_id: str):
-        super().__init__()
+    def __init__(self, cog, guild, submission_id: str, *, spoiler: bool = False):
+        super().__init__(title="Add Field (Spoiler)" if spoiler else "Add Field")
         self.cog = cog
         self.guild = guild
         self.submission_id = submission_id
+        self.spoiler = spoiler
 
     async def on_submit(self, interaction: discord.Interaction):
-        await self.cog.store.set_submission_field(
-            self.guild, self.submission_id, self.field_name.value, self.field_value.value
-        )
+        value = wrap_spoiler(self.field_value.value, self.spoiler)
+        await self.cog.store.set_submission_field(self.guild, self.submission_id, self.field_name.value, value)
         submission = await self.cog.store.get_submission(self.guild, self.submission_id)
         await interaction.response.send_message(embed=build_submission_embed(submission), ephemeral=True)
 
 
 class EditSubmissionFieldModal(discord.ui.Modal, title="Edit Field"):
-    def __init__(self, cog, guild, submission_id: str, field_name: str, current_value: str):
-        super().__init__()
+    def __init__(self, cog, guild, submission_id: str, field_name: str, current_value: str, *, spoiler: bool = False):
+        super().__init__(title="Edit Field (Spoiler)" if spoiler else "Edit Field")
         self.cog = cog
         self.guild = guild
         self.submission_id = submission_id
         self.field_name = field_name
+        self.spoiler = spoiler
+        raw_value, _ = unwrap_spoiler(current_value)
         self.field_value = discord.ui.TextInput(
             label=f"Value for {field_name}"[:45],
-            default=current_value,
+            default=raw_value,
             max_length=1000,
             style=discord.TextStyle.paragraph,
         )
         self.add_item(self.field_value)
 
     async def on_submit(self, interaction: discord.Interaction):
-        await self.cog.store.set_submission_field(
-            self.guild, self.submission_id, self.field_name, self.field_value.value
-        )
+        value = wrap_spoiler(self.field_value.value, self.spoiler)
+        await self.cog.store.set_submission_field(self.guild, self.submission_id, self.field_name, value)
         submission = await self.cog.store.get_submission(self.guild, self.submission_id)
         await interaction.response.send_message(embed=build_submission_embed(submission), ephemeral=True)
 
 
 class SelectSubmissionFieldView(discord.ui.View):
-    def __init__(self, cog, guild, submission_id: str, field_names: list, *, action: str):
+    def __init__(self, cog, guild, submission_id: str, field_names: list, *, action: str, spoiler: bool = False):
         super().__init__(timeout=300)
         self.cog = cog
         self.guild = guild
         self.submission_id = submission_id
         self.action = action
+        self.spoiler = spoiler
         select = discord.ui.Select(
             placeholder="Choose a field...",
             options=[discord.SelectOption(label=name) for name in field_names[:25]],
@@ -475,7 +508,8 @@ class SelectSubmissionFieldView(discord.ui.View):
             submission = await self.cog.store.get_submission(self.guild, self.submission_id)
             await interaction.response.send_modal(
                 EditSubmissionFieldModal(
-                    self.cog, self.guild, self.submission_id, field_name, submission["fields"][field_name]
+                    self.cog, self.guild, self.submission_id, field_name, submission["fields"][field_name],
+                    spoiler=self.spoiler,
                 )
             )
         else:
@@ -492,11 +526,18 @@ class SubmissionFieldEditorView(discord.ui.View):
         self.cog = cog
         self.guild = guild
         self.submission_id = submission_id
+        self.spoiler_mode = False
+
+    @discord.ui.button(label="Spoiler: Off", style=discord.ButtonStyle.secondary)
+    async def toggle_spoiler(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.spoiler_mode = not self.spoiler_mode
+        button.label = f"Spoiler: {'On' if self.spoiler_mode else 'Off'}"
+        await interaction.response.edit_message(view=self)
 
     @discord.ui.button(label="Add Field", style=discord.ButtonStyle.success)
     async def add_field(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(
-            AddSubmissionFieldModal(self.cog, self.guild, self.submission_id)
+            AddSubmissionFieldModal(self.cog, self.guild, self.submission_id, spoiler=self.spoiler_mode)
         )
 
     @discord.ui.button(label="Edit Field", style=discord.ButtonStyle.primary)
@@ -506,7 +547,8 @@ class SubmissionFieldEditorView(discord.ui.View):
             await interaction.response.send_message("This proposal has no fields to edit yet.", ephemeral=True)
             return
         view = SelectSubmissionFieldView(
-            self.cog, self.guild, self.submission_id, list(submission["fields"].keys()), action="edit"
+            self.cog, self.guild, self.submission_id, list(submission["fields"].keys()),
+            action="edit", spoiler=self.spoiler_mode,
         )
         await interaction.response.send_message("Pick a field to edit:", view=view, ephemeral=True)
 
