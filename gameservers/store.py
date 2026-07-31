@@ -7,6 +7,9 @@ GUILD_DEFAULTS = {
     "management_roles": [],
     "panel_channel_id": None,
     "panel_message_id": None,
+    "submitter_roles": [],
+    "submissions": {},
+    "next_submission_id": 1,
 }
 
 
@@ -119,6 +122,53 @@ class GameStore:
     async def clear_panel(self, guild) -> None:
         await self.config.guild(guild).panel_channel_id.set(None)
         await self.config.guild(guild).panel_message_id.set(None)
+
+    async def create_submission(self, guild, submission_type: str, submitter_id: int, game_name: str) -> str:
+        next_id = await self.config.guild(guild).next_submission_id()
+        submission_id = str(next_id)
+        async with self.config.guild(guild).submissions() as submissions:
+            submissions[submission_id] = {
+                "type": submission_type,
+                "submitter_id": submitter_id,
+                "game_name": game_name,
+                "fields": {},
+                "status": "pending",
+            }
+        await self.config.guild(guild).next_submission_id.set(next_id + 1)
+        return submission_id
+
+    async def get_submission(self, guild, submission_id: str) -> Optional[dict]:
+        submissions = await self.config.guild(guild).submissions()
+        return submissions.get(submission_id)
+
+    async def set_submission_field(self, guild, submission_id: str, field_name: str, field_value: str) -> bool:
+        async with self.config.guild(guild).submissions() as submissions:
+            if submission_id not in submissions:
+                return False
+            submissions[submission_id]["fields"][field_name] = field_value
+        return True
+
+    async def remove_submission_field(self, guild, submission_id: str, field_name: str) -> bool:
+        async with self.config.guild(guild).submissions() as submissions:
+            if submission_id not in submissions or field_name not in submissions[submission_id]["fields"]:
+                return False
+            del submissions[submission_id]["fields"][field_name]
+        return True
+
+    async def delete_submission(self, guild, submission_id: str) -> bool:
+        async with self.config.guild(guild).submissions() as submissions:
+            if submission_id not in submissions:
+                return False
+            del submissions[submission_id]
+        return True
+
+    async def list_pending_submissions(self, guild) -> dict:
+        submissions = await self.config.guild(guild).submissions()
+        return {sid: s for sid, s in submissions.items() if s["status"] == "pending"}
+
+    async def list_submissions_by_user(self, guild, user_id: int) -> dict:
+        submissions = await self.config.guild(guild).submissions()
+        return {sid: s for sid, s in submissions.items() if s["submitter_id"] == user_id}
 
 
 class SelectionCache:
