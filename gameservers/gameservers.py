@@ -90,7 +90,7 @@ class GameServers(commands.Cog):
             await ctx.send("You don't have permission to manage GameServers.", ephemeral=True)
             return
         view = AdminView(self, ctx.guild)
-        await ctx.send("GameServers Admin", view=view, ephemeral=True)
+        view.message = await ctx.send("GameServers Admin", view=view, ephemeral=True)
 
     @gameservers.command(name="propose")
     async def gameservers_propose(self, ctx: commands.Context) -> None:
@@ -100,7 +100,7 @@ class GameServers(commands.Cog):
             await ctx.send("You don't have permission to propose games.", ephemeral=True)
             return
         view = ProposeView(self, ctx.guild)
-        await ctx.send("Propose a Game", view=view, ephemeral=True)
+        view.message = await ctx.send("Propose a Game", view=view, ephemeral=True)
 
     @gameservers.command(name="submissions")
     async def gameservers_submissions(self, ctx: commands.Context) -> None:
@@ -110,4 +110,4 @@ class GameServers(commands.Cog):
             await ctx.send("You haven't submitted any proposals yet.", ephemeral=True)
             return
         view = MySubmissionsView(self, ctx.guild, own)
-        await ctx.send("Your Submissions", view=view, ephemeral=True)
+        view.message = await ctx.send("Your Submissions", view=view, ephemeral=True)
