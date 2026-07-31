@@ -183,6 +183,43 @@ class GameStore:
         member_role_ids = {role.id for role in member.roles}
         return bool(member_role_ids.intersection(submitter_roles))
 
+    async def approve_submission(self, guild, submission_id: str) -> str:
+        submissions = await self.config.guild(guild).submissions()
+        submission = submissions.get(submission_id)
+        if submission is None:
+            return "not_found"
+        if submission["status"] != "pending":
+            return "not_pending"
+
+        if submission["type"] == "new_game":
+            added = await self.add_game(guild, submission["game_name"])
+            if not added:
+                await self._set_submission_status(guild, submission_id, "rejected")
+                return "auto_rejected_name_exists"
+        else:
+            game = await self.get_game(guild, submission["game_name"])
+            if game is None:
+                await self._set_submission_status(guild, submission_id, "rejected")
+                return "auto_rejected_target_missing"
+
+        for field_name, field_value in submission["fields"].items():
+            await self.set_field(guild, submission["game_name"], field_name, field_value)
+
+        await self._set_submission_status(guild, submission_id, "approved")
+        return "approved"
+
+    async def reject_submission(self, guild, submission_id: str) -> bool:
+        submissions = await self.config.guild(guild).submissions()
+        submission = submissions.get(submission_id)
+        if submission is None or submission["status"] != "pending":
+            return False
+        await self._set_submission_status(guild, submission_id, "rejected")
+        return True
+
+    async def _set_submission_status(self, guild, submission_id: str, status: str) -> None:
+        async with self.config.guild(guild).submissions() as submissions:
+            submissions[submission_id]["status"] = status
+
 
 class SelectionCache:
     """In-memory tracker for a panel's currently-selected game, per user.
