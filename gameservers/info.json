@@ -1,0 +1,14 @@
+{
+    "author": ["Dale Sharp"],
+    "min_bot_version": "3.5.0",
+    "max_bot_version": "0.0.0",
+    "description": "Lets members pick a game from a persistent dropdown panel and view that game's configured server details in an ephemeral reply. Games, custom fields, and per-game viewing roles are configured per-server through an interactive admin UI.",
+    "hidden": false,
+    "disabled": false,
+    "install_msg": "Thanks for installing GameServers! Run `[p]gameservers admin` in a server to configure games and set up the panel.",
+    "requirements": [],
+    "short": "Per-server game/server details panel with role-gated access.",
+    "tags": ["games", "servers", "utility"],
+    "type": "COG",
+    "end_user_data_statement": "This cog stores, per Discord server, admin-configured game names, custom detail fields, and Discord role IDs used to control management and viewing access. It does not store personal data about individual members, beyond Discord user/role IDs used transiently in memory to track a member's current dropdown selection on the panel; that selection is never persisted to disk and is cleared on bot restart."
+}
