@@ -620,17 +620,17 @@ class AdminView(discord.ui.View):
     async def review_submissions(self, interaction: discord.Interaction, button: discord.ui.Button):
         pending = await self.cog.store.list_pending_submissions(self.guild)
         if not pending:
-            await interaction.response.send_message("No pending submissions.", ephemeral=True)
+            await interaction.response.edit_message(content="No pending submissions.", view=self)
             return
         view = SelectSubmissionToReviewView(self.cog, self.guild, pending)
-        await interaction.response.send_message("Pick a submission to review:", view=view, ephemeral=True)
+        await interaction.response.edit_message(content="Pick a submission to review:", embed=None, view=view)
 
     @discord.ui.button(label="Manage Submitter Roles", style=discord.ButtonStyle.secondary)
     async def manage_submitter_roles(self, interaction: discord.Interaction, button: discord.ui.Button):
         current = await self.cog.store.get_submitter_roles(self.guild)
         view = ManageSubmitterRolesView(self.cog, self.guild, current)
-        await interaction.response.send_message(
-            "Select the roles allowed to propose new games/edits:", view=view, ephemeral=True
+        await interaction.response.edit_message(
+            content="Select the roles allowed to propose new games/edits:", embed=None, view=view
         )
 
 
@@ -651,7 +651,11 @@ class AddSubmissionFieldModal(discord.ui.Modal, title="Add Field"):
         value = wrap_spoiler(self.field_value.value, self.spoiler)
         await self.cog.store.set_submission_field(self.guild, self.submission_id, self.field_name.value, value)
         submission = await self.cog.store.get_submission(self.guild, self.submission_id)
-        await interaction.response.send_message(embed=build_submission_embed(submission), ephemeral=True)
+        await interaction.response.edit_message(
+            content=None,
+            embed=build_submission_embed(submission),
+            view=SubmissionFieldEditorView(self.cog, self.guild, self.submission_id),
+        )
 
 
 class EditSubmissionFieldModal(discord.ui.Modal, title="Edit Field"):
@@ -675,7 +679,11 @@ class EditSubmissionFieldModal(discord.ui.Modal, title="Edit Field"):
         value = wrap_spoiler(self.field_value.value, self.spoiler)
         await self.cog.store.set_submission_field(self.guild, self.submission_id, self.field_name, value)
         submission = await self.cog.store.get_submission(self.guild, self.submission_id)
-        await interaction.response.send_message(embed=build_submission_embed(submission), ephemeral=True)
+        await interaction.response.edit_message(
+            content=None,
+            embed=build_submission_embed(submission),
+            view=SubmissionFieldEditorView(self.cog, self.guild, self.submission_id),
+        )
 
 
 class SelectSubmissionFieldView(discord.ui.View):
@@ -707,8 +715,10 @@ class SelectSubmissionFieldView(discord.ui.View):
         else:
             await self.cog.store.remove_submission_field(self.guild, self.submission_id, field_name)
             submission = await self.cog.store.get_submission(self.guild, self.submission_id)
-            await interaction.response.send_message(
-                embed=build_submission_embed(submission), ephemeral=True
+            await interaction.response.edit_message(
+                content=None,
+                embed=build_submission_embed(submission),
+                view=SubmissionFieldEditorView(self.cog, self.guild, self.submission_id),
             )
 
 
@@ -736,24 +746,24 @@ class SubmissionFieldEditorView(discord.ui.View):
     async def edit_field(self, interaction: discord.Interaction, button: discord.ui.Button):
         submission = await self.cog.store.get_submission(self.guild, self.submission_id)
         if not submission or not submission["fields"]:
-            await interaction.response.send_message("This proposal has no fields to edit yet.", ephemeral=True)
+            await interaction.response.edit_message(content="This proposal has no fields to edit yet.", view=self)
             return
         view = SelectSubmissionFieldView(
             self.cog, self.guild, self.submission_id, list(submission["fields"].keys()),
             action="edit", spoiler=self.spoiler_mode,
         )
-        await interaction.response.send_message("Pick a field to edit:", view=view, ephemeral=True)
+        await interaction.response.edit_message(content="Pick a field to edit:", embed=None, view=view)
 
     @discord.ui.button(label="Remove Field", style=discord.ButtonStyle.danger)
     async def remove_field(self, interaction: discord.Interaction, button: discord.ui.Button):
         submission = await self.cog.store.get_submission(self.guild, self.submission_id)
         if not submission or not submission["fields"]:
-            await interaction.response.send_message("This proposal has no fields to remove.", ephemeral=True)
+            await interaction.response.edit_message(content="This proposal has no fields to remove.", view=self)
             return
         view = SelectSubmissionFieldView(
             self.cog, self.guild, self.submission_id, list(submission["fields"].keys()), action="remove"
         )
-        await interaction.response.send_message("Pick a field to remove:", view=view, ephemeral=True)
+        await interaction.response.edit_message(content="Pick a field to remove:", embed=None, view=view)
 
 
 class ProposeNewGameModal(discord.ui.Modal, title="Propose New Game"):
@@ -770,8 +780,8 @@ class ProposeNewGameModal(discord.ui.Modal, title="Propose New Game"):
         )
         submission = await self.cog.store.get_submission(self.guild, submission_id)
         view = SubmissionFieldEditorView(self.cog, self.guild, submission_id)
-        await interaction.response.send_message(
-            embed=build_submission_embed(submission), view=view, ephemeral=True
+        await interaction.response.edit_message(
+            content=None, embed=build_submission_embed(submission), view=view,
         )
 
 
@@ -795,8 +805,8 @@ class SelectGameForEditProposalView(discord.ui.View):
         )
         submission = await self.cog.store.get_submission(self.guild, submission_id)
         view = SubmissionFieldEditorView(self.cog, self.guild, submission_id)
-        await interaction.response.send_message(
-            embed=build_submission_embed(submission), view=view, ephemeral=True
+        await interaction.response.edit_message(
+            content=None, embed=build_submission_embed(submission), view=view,
         )
 
 
@@ -814,13 +824,13 @@ class ProposeView(discord.ui.View):
     async def propose_edit(self, interaction: discord.Interaction, button: discord.ui.Button):
         games = await self.cog.store.list_games(self.guild)
         if not games:
-            await interaction.response.send_message(
-                "No games exist yet to propose edits to.", ephemeral=True
+            await interaction.response.edit_message(
+                content="No games exist yet to propose edits to.", view=self,
             )
             return
         view = SelectGameForEditProposalView(self.cog, self.guild, list(games.keys()))
-        await interaction.response.send_message(
-            "Pick a game to propose an edit for:", view=view, ephemeral=True
+        await interaction.response.edit_message(
+            content="Pick a game to propose an edit for:", embed=None, view=view,
         )
 
 
@@ -835,14 +845,14 @@ class SubmissionActionsView(discord.ui.View):
     async def edit(self, interaction: discord.Interaction, button: discord.ui.Button):
         submission = await self.cog.store.get_submission(self.guild, self.submission_id)
         view = SubmissionFieldEditorView(self.cog, self.guild, self.submission_id)
-        await interaction.response.send_message(
-            embed=build_submission_embed(submission), view=view, ephemeral=True
+        await interaction.response.edit_message(
+            content=None, embed=build_submission_embed(submission), view=view,
         )
 
     @discord.ui.button(label="Withdraw", style=discord.ButtonStyle.danger)
     async def withdraw(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.cog.store.delete_submission(self.guild, self.submission_id)
-        await interaction.response.send_message("Submission withdrawn.", ephemeral=True)
+        await interaction.response.edit_message(content="Submission withdrawn.", embed=None, view=None)
 
 
 class MySubmissionsView(discord.ui.View):
@@ -864,13 +874,11 @@ class MySubmissionsView(discord.ui.View):
         submission = await self.cog.store.get_submission(self.guild, submission_id)
         if submission["status"] == "pending":
             view = SubmissionActionsView(self.cog, self.guild, submission_id)
-            await interaction.response.send_message(
-                embed=build_submission_embed(submission), view=view, ephemeral=True
-            )
         else:
-            await interaction.response.send_message(
-                embed=build_submission_embed(submission), ephemeral=True
-            )
+            view = None
+        await interaction.response.edit_message(
+            content=None, embed=build_submission_embed(submission), view=view,
+        )
 
 
 class SubmissionReviewView(discord.ui.View):
@@ -887,26 +895,31 @@ class SubmissionReviewView(discord.ui.View):
             submission = await self.cog.store.get_submission(self.guild, self.submission_id)
             if submission["type"] == "new_game":
                 await self.cog.refresh_panels(self.guild)
-            await interaction.response.send_message("Submission approved.", ephemeral=True)
+            await interaction.response.edit_message(content="Submission approved.", embed=None, view=None)
         elif result == "auto_rejected_name_exists":
-            await interaction.response.send_message(
-                "Could not approve: a game with that name already exists. Submission auto-rejected.",
-                ephemeral=True,
+            await interaction.response.edit_message(
+                content="Could not approve: a game with that name already exists. Submission auto-rejected.",
+                embed=None,
+                view=None,
             )
         elif result == "auto_rejected_target_missing":
-            await interaction.response.send_message(
-                "Could not approve: the target game no longer exists. Submission auto-rejected.",
-                ephemeral=True,
+            await interaction.response.edit_message(
+                content="Could not approve: the target game no longer exists. Submission auto-rejected.",
+                embed=None,
+                view=None,
             )
         else:
-            await interaction.response.send_message("This submission can no longer be reviewed.", ephemeral=True)
+            await interaction.response.edit_message(
+                content="This submission can no longer be reviewed.", embed=None, view=None
+            )
 
     @discord.ui.button(label="Reject", style=discord.ButtonStyle.danger)
     async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
         rejected = await self.cog.store.reject_submission(self.guild, self.submission_id)
-        await interaction.response.send_message(
-            "Submission rejected." if rejected else "This submission can no longer be reviewed.",
-            ephemeral=True,
+        await interaction.response.edit_message(
+            content="Submission rejected." if rejected else "This submission can no longer be reviewed.",
+            embed=None,
+            view=None,
         )
 
 
@@ -931,8 +944,8 @@ class SelectSubmissionToReviewView(discord.ui.View):
         submission_id = self._select.values[0]
         submission = await self.cog.store.get_submission(self.guild, submission_id)
         view = SubmissionReviewView(self.cog, self.guild, submission_id)
-        await interaction.response.send_message(
-            embed=build_submission_embed(submission), view=view, ephemeral=True
+        await interaction.response.edit_message(
+            content=None, embed=build_submission_embed(submission), view=view,
         )
 
 
@@ -954,4 +967,6 @@ class ManageSubmitterRolesView(discord.ui.View):
     async def _on_select(self, interaction: discord.Interaction):
         role_ids = [role.id for role in self._select.values]
         await self.cog.store.set_submitter_roles(self.guild, role_ids)
-        await interaction.response.send_message("Submitter roles updated.", ephemeral=True)
+        await interaction.response.edit_message(
+            content="Submitter roles updated.", embed=None, view=AdminView(self.cog, self.guild)
+        )
