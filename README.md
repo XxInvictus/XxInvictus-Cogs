@@ -11,7 +11,7 @@ an interactive `[p]/gameservers admin` UI.
 This repo's dev tooling is managed entirely with [uv](https://docs.astral.sh/uv/) — no `requirements.txt`.
 
 ```
-uv python install 3.8
+uv python install 3.11
 uv sync
 uv run pytest
 ```

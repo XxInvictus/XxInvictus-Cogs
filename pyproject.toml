@@ -2,7 +2,7 @@
 name = "gameservers-cog-dev"
 version = "0.1.0"
 description = "Dev environment for the GameServers RED cog"
-requires-python = ">=3.8.1,<3.9"
+requires-python = ">=3.11,<3.12"
 
 [dependency-groups]
 dev = [
