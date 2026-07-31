@@ -5,8 +5,7 @@ CONFIG_IDENTIFIER = 847291635
 GUILD_DEFAULTS = {
     "games": {},
     "management_roles": [],
-    "panel_channel_id": None,
-    "panel_message_id": None,
+    "panels": [],
     "submitter_roles": [],
     "submissions": {},
     "next_submission_id": 1,
@@ -110,18 +109,35 @@ class GameStore:
             games[key]["access_roles"] = list(role_ids)
         return True
 
-    async def get_panel(self, guild) -> tuple:
-        channel_id = await self.config.guild(guild).panel_channel_id()
-        message_id = await self.config.guild(guild).panel_message_id()
-        return channel_id, message_id
+    async def list_panels(self, guild) -> list:
+        return await self.config.guild(guild).panels()
 
-    async def set_panel(self, guild, channel_id: int, message_id: int) -> None:
-        await self.config.guild(guild).panel_channel_id.set(channel_id)
-        await self.config.guild(guild).panel_message_id.set(message_id)
+    async def get_panel(self, guild, message_id: int) -> Optional[dict]:
+        panels = await self.config.guild(guild).panels()
+        for panel in panels:
+            if panel["message_id"] == message_id:
+                return panel
+        return None
 
-    async def clear_panel(self, guild) -> None:
-        await self.config.guild(guild).panel_channel_id.set(None)
-        await self.config.guild(guild).panel_message_id.set(None)
+    async def add_panel(self, guild, channel_id: int, message_id: int, game_names) -> None:
+        async with self.config.guild(guild).panels() as panels:
+            panels.append({"channel_id": channel_id, "message_id": message_id, "game_names": game_names})
+
+    async def remove_panel(self, guild, message_id: int) -> bool:
+        async with self.config.guild(guild).panels() as panels:
+            for index, panel in enumerate(panels):
+                if panel["message_id"] == message_id:
+                    del panels[index]
+                    return True
+        return False
+
+    async def set_panel_games(self, guild, message_id: int, game_names) -> bool:
+        async with self.config.guild(guild).panels() as panels:
+            for panel in panels:
+                if panel["message_id"] == message_id:
+                    panel["game_names"] = game_names
+                    return True
+        return False
 
     async def create_submission(self, guild, submission_type: str, submitter_id: int, game_name: str) -> str:
         next_id = await self.config.guild(guild).next_submission_id()
