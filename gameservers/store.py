@@ -119,3 +119,20 @@ class GameStore:
     async def clear_panel(self, guild) -> None:
         await self.config.guild(guild).panel_channel_id.set(None)
         await self.config.guild(guild).panel_message_id.set(None)
+
+
+class SelectionCache:
+    """In-memory tracker for a panel's currently-selected game, per user.
+
+    Intentionally not persisted to Config: losing a selection on restart
+    just means the member has to reselect, which costs nothing.
+    """
+
+    def __init__(self):
+        self._selections = {}
+
+    def set_selection(self, message_id: int, user_id: int, game_name: str) -> None:
+        self._selections[(message_id, user_id)] = game_name
+
+    def get_selection(self, message_id: int, user_id: int):
+        return self._selections.get((message_id, user_id))
