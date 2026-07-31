@@ -270,3 +270,108 @@ class GameEditorView(discord.ui.View):
             f"Deleted **{self.game_name}**." if deleted else "That game no longer exists.",
             ephemeral=True,
         )
+
+
+class AddGameModal(discord.ui.Modal, title="Add Game"):
+    name = discord.ui.TextInput(label="Game name", max_length=100)
+
+    def __init__(self, cog, guild):
+        super().__init__()
+        self.cog = cog
+        self.guild = guild
+
+    async def on_submit(self, interaction: discord.Interaction):
+        added = await self.cog.store.add_game(self.guild, self.name.value)
+        if not added:
+            await interaction.response.send_message(
+                f"A game named **{self.name.value}** already exists.", ephemeral=True
+            )
+            return
+        await self.cog.refresh_panel(self.guild)
+        game = await self.cog.store.get_game(self.guild, self.name.value)
+        view = GameEditorView(self.cog, self.guild, self.name.value)
+        await interaction.response.send_message(
+            embed=build_game_embed(self.name.value, game["fields"]), view=view, ephemeral=True
+        )
+
+
+class SelectGameToManageView(discord.ui.View):
+    def __init__(self, cog, guild, game_names: list):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.guild = guild
+        select = discord.ui.Select(
+            placeholder="Choose a game...",
+            options=[discord.SelectOption(label=name) for name in game_names[:25]],
+        )
+        select.callback = self._on_select
+        self.add_item(select)
+        self._select = select
+
+    async def _on_select(self, interaction: discord.Interaction):
+        game_name = self._select.values[0]
+        game = await self.cog.store.get_game(self.guild, game_name)
+        view = GameEditorView(self.cog, self.guild, game_name)
+        await interaction.response.send_message(
+            embed=build_game_embed(game_name, game["fields"]), view=view, ephemeral=True
+        )
+
+
+class ManageManagementRolesView(discord.ui.View):
+    def __init__(self, cog, guild, current_role_ids: list):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.guild = guild
+        select = discord.ui.RoleSelect(
+            placeholder="Roles allowed to manage GameServers (none = admins only)",
+            min_values=0,
+            max_values=25,
+            default_values=[discord.Object(id=role_id) for role_id in current_role_ids],
+        )
+        select.callback = self._on_select
+        self.add_item(select)
+        self._select = select
+
+    async def _on_select(self, interaction: discord.Interaction):
+        role_ids = [role.id for role in self._select.values]
+        await self.cog.store.set_management_roles(self.guild, role_ids)
+        await interaction.response.send_message("Management roles updated.", ephemeral=True)
+
+
+class AdminView(discord.ui.View):
+    def __init__(self, cog, guild):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.guild = guild
+
+    @discord.ui.button(label="Add Game", style=discord.ButtonStyle.success)
+    async def add_game(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(AddGameModal(self.cog, self.guild))
+
+    @discord.ui.button(label="Manage Games", style=discord.ButtonStyle.primary)
+    async def manage_games(self, interaction: discord.Interaction, button: discord.ui.Button):
+        games = await self.cog.store.list_games(self.guild)
+        if not games:
+            await interaction.response.send_message(
+                "No games configured yet. Use Add Game first.", ephemeral=True
+            )
+            return
+        view = SelectGameToManageView(self.cog, self.guild, list(games.keys()))
+        await interaction.response.send_message("Pick a game to manage:", view=view, ephemeral=True)
+
+    @discord.ui.button(label="Manage Roles", style=discord.ButtonStyle.secondary)
+    async def manage_roles(self, interaction: discord.Interaction, button: discord.ui.Button):
+        current = await self.cog.store.get_management_roles(self.guild)
+        view = ManageManagementRolesView(self.cog, self.guild, current)
+        await interaction.response.send_message(
+            "Select the roles (besides Discord admins) allowed to manage GameServers:",
+            view=view,
+            ephemeral=True,
+        )
+
+    @discord.ui.button(label="Setup Panel", style=discord.ButtonStyle.secondary)
+    async def setup_panel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        view = SetupPanelView(self.cog, self.guild)
+        await interaction.response.send_message(
+            "Select the channel to post the panel in:", view=view, ephemeral=True
+        )
