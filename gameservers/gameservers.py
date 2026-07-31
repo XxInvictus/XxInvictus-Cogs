@@ -22,33 +22,55 @@ class GameServers(commands.Cog):
         self.store = GameStore(self.config)
         self.selection_cache = SelectionCache()
 
-    async def refresh_panel(self, guild) -> None:
-        channel_id, message_id = await self.store.get_panel(guild)
-        if channel_id is None or message_id is None:
-            return
-        channel = guild.get_channel(channel_id)
-        if channel is None:
-            return
-        try:
-            message = await channel.fetch_message(message_id)
-        except discord.NotFound:
-            await self.store.clear_panel(guild)
-            return
+    async def refresh_panels(self, guild) -> None:
+        panels = await self.store.list_panels(guild)
         games = await self.store.list_games(guild)
-        view = PanelView(self, list(games.keys()))
-        await message.edit(view=view)
+        for panel in panels:
+            channel = guild.get_channel(panel["channel_id"])
+            if channel is None:
+                await self.store.remove_panel(guild, panel["message_id"])
+                continue
+            try:
+                message = await channel.fetch_message(panel["message_id"])
+            except discord.NotFound:
+                await self.store.remove_panel(guild, panel["message_id"])
+                continue
+            names_to_show = self._panel_game_names(panel["game_names"], games)
+            view = PanelView(self, names_to_show)
+            await message.edit(view=view)
+            self.bot.add_view(view, message_id=message.id)
+
+    async def create_panel(self, guild, channel, game_names) -> None:
+        games = await self.store.list_games(guild)
+        names_to_show = self._panel_game_names(game_names, games)
+        view = PanelView(self, names_to_show)
+        message = await channel.send(
+            "**Game Server Details** — pick a game, then click Get Details.", view=view
+        )
+        try:
+            await message.pin()
+        except discord.HTTPException:
+            pass
+        await self.store.add_panel(guild, channel.id, message.id, game_names)
         self.bot.add_view(view, message_id=message.id)
+
+    @staticmethod
+    def _panel_game_names(game_names, games: dict) -> list:
+        if game_names is None:
+            return list(games.keys())
+        return [name for name in game_names if name in games]
 
     async def cog_load(self) -> None:
         all_guilds = await self.config.all_guilds()
         for guild_id, data in all_guilds.items():
-            if data.get("panel_message_id") is None:
-                continue
             guild = self.bot.get_guild(guild_id)
             if guild is None:
                 continue
-            view = PanelView(self, list(data["games"].keys()))
-            self.bot.add_view(view, message_id=data["panel_message_id"])
+            games = data.get("games", {})
+            for panel in data.get("panels", []):
+                names_to_show = self._panel_game_names(panel["game_names"], games)
+                view = PanelView(self, names_to_show)
+                self.bot.add_view(view, message_id=panel["message_id"])
 
     async def cog_unload(self) -> None:
         pass

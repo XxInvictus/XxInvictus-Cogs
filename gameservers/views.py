@@ -194,7 +194,7 @@ class RenameGameModal(discord.ui.Modal, title="Rename Game"):
                 ephemeral=True,
             )
             return
-        await self.cog.refresh_panel(self.guild)
+        await self.cog.refresh_panels(self.guild)
         await interaction.response.send_message(f"Renamed to **{self.new_name.value}**.", ephemeral=True)
 
 
@@ -313,7 +313,7 @@ class GameEditorView(discord.ui.View):
     async def delete_game(self, interaction: discord.Interaction, button: discord.ui.Button):
         deleted = await self.cog.store.delete_game(self.guild, self.game_name)
         if deleted:
-            await self.cog.refresh_panel(self.guild)
+            await self.cog.refresh_panels(self.guild)
         await interaction.response.send_message(
             f"Deleted **{self.game_name}**." if deleted else "That game no longer exists.",
             ephemeral=True,
@@ -335,7 +335,7 @@ class AddGameModal(discord.ui.Modal, title="Add Game"):
                 f"A game named **{self.name.value}** already exists.", ephemeral=True
             )
             return
-        await self.cog.refresh_panel(self.guild)
+        await self.cog.refresh_panels(self.guild)
         game = await self.cog.store.get_game(self.guild, self.name.value)
         view = GameEditorView(self.cog, self.guild, self.name.value)
         await interaction.response.send_message(
@@ -694,7 +694,7 @@ class SubmissionReviewView(discord.ui.View):
         if result == "approved":
             submission = await self.cog.store.get_submission(self.guild, self.submission_id)
             if submission["type"] == "new_game":
-                await self.cog.refresh_panel(self.guild)
+                await self.cog.refresh_panels(self.guild)
             await interaction.response.send_message("Submission approved.", ephemeral=True)
         elif result == "auto_rejected_name_exists":
             await interaction.response.send_message(
